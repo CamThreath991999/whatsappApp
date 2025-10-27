@@ -123,5 +123,84 @@ router.get('/:sessionId/:chatId/messages', verifyToken, async (req, res) => {
     }
 });
 
+// Enviar mensaje de respuesta a un chat
+router.post('/:sessionId/:chatId/reply', verifyToken, async (req, res) => {
+    try {
+        const { sessionId, chatId } = req.params;
+        const { message } = req.body;
+
+        if (!message || !message.trim()) {
+            return res.status(400).json({
+                error: true,
+                message: 'El mensaje no puede estar vacío'
+            });
+        }
+
+        // Verificar que la sesión pertenece al usuario
+        const [devices] = await pool.execute(
+            'SELECT * FROM dispositivos WHERE session_id = ? AND usuario_id = ?',
+            [sessionId, req.user.id]
+        );
+
+        if (devices.length === 0) {
+            return res.status(404).json({
+                error: true,
+                message: 'Sesión no encontrada'
+            });
+        }
+
+        // Obtener el servicio de WhatsApp del servidor
+        const whatsappService = req.app.get('whatsappService');
+        
+        if (!whatsappService) {
+            return res.status(500).json({
+                error: true,
+                message: 'Servicio de WhatsApp no disponible'
+            });
+        }
+
+        // Enviar mensaje
+        await whatsappService.sendMessage(sessionId, chatId.split('@')[0], message.trim());
+
+        // Guardar mensaje en chats.json
+        const chatsPath = path.join(__dirname, '../../../sessions', sessionId, 'chats.json');
+        
+        if (fs.existsSync(chatsPath)) {
+            try {
+                const chatsData = fs.readFileSync(chatsPath, 'utf8');
+                const chats = JSON.parse(chatsData);
+
+                // Buscar el chat y agregar mensaje
+                const chat = chats.find(c => c.id === chatId);
+                if (chat) {
+                    chat.messages.push({
+                        text: message.trim(),
+                        timestamp: Math.floor(Date.now() / 1000),
+                        fromMe: true
+                    });
+                    chat.lastMessage = message.trim();
+                    chat.lastTimestamp = Math.floor(Date.now() / 1000);
+
+                    fs.writeFileSync(chatsPath, JSON.stringify(chats, null, 2));
+                }
+            } catch (err) {
+                console.error('Error actualizando chats.json:', err);
+            }
+        }
+
+        res.json({
+            success: true,
+            message: 'Mensaje enviado correctamente'
+        });
+
+    } catch (error) {
+        console.error('Error enviando respuesta:', error);
+        res.status(500).json({
+            error: true,
+            message: 'Error al enviar mensaje: ' + (error.message || 'Error desconocido')
+        });
+    }
+});
+
 module.exports = router;
 

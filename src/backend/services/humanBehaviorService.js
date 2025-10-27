@@ -11,9 +11,12 @@ class HumanBehaviorService {
             'reactToMessage',
             'renameContact',
             'changeSettings',
-            'saveAndDeleteContact',     // NUEVO
-            'uploadAndDeleteStatus',    // NUEVO
-            'chatWithMetaAI'           // NUEVO
+            'saveAndDeleteContact',     // Guardar/eliminar contacto falso
+            'uploadAndDeleteStatus',    // Subir/borrar estado
+            'chatWithMetaAI',          // Hablar con Meta AI
+            'viewRandomChat',           // 🆕 Ver chat aleatorio
+            'viewProfilePicture',       // 🆕 Ver foto de perfil
+            'reactToRandomMessage'      // 🆕 Reaccionar a mensaje aleatorio
         ];
     }
 
@@ -60,6 +63,15 @@ class HumanBehaviorService {
                     break;
                 case 'chatWithMetaAI':
                     result = await this.chatWithMetaAI(sessionId);
+                    break;
+                case 'viewRandomChat':
+                    result = await this.viewRandomChat(sessionId);
+                    break;
+                case 'viewProfilePicture':
+                    result = await this.viewProfilePicture(sessionId);
+                    break;
+                case 'reactToRandomMessage':
+                    result = await this.reactToRandomMessage(sessionId);
                     break;
                 default:
                     result = { executed: false };
@@ -407,6 +419,155 @@ class HumanBehaviorService {
 
         } catch (error) {
             console.error('Error hablando con Meta AI:', error);
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // 🆕 Ver chat aleatorio (ANTI-SPAM)
+    async viewRandomChat(sessionId) {
+        try {
+            const sock = this.whatsappService.getClient(sessionId);
+            if (!sock) return { executed: false, reason: 'Cliente no disponible' };
+
+            console.log('👁️ Viendo chat aleatorio...');
+
+            // Obtener chats disponibles
+            const chats = await sock.groupFetchAllParticipating().catch(() => ({}));
+            const chatIds = Object.keys(chats);
+
+            if (chatIds.length === 0) {
+                console.log('⚠️ No hay chats disponibles');
+                return { executed: false, reason: 'Sin chats disponibles' };
+            }
+
+            // Seleccionar chat aleatorio
+            const randomChatId = chatIds[Math.floor(Math.random() * chatIds.length)];
+            console.log(`✅ Viendo chat: ${randomChatId}`);
+
+            // Simular lectura de mensajes (obtener mensajes)
+            try {
+                const messages = await sock.fetchMessagesFromWA(randomChatId, 20);
+                console.log(`   📨 ${messages?.length || 0} mensajes obtenidos`);
+            } catch (err) {
+                console.log(`   ⚠️ No se pudieron obtener mensajes: ${err.message}`);
+            }
+
+            // Esperar entre 5-15 segundos (simular lectura)
+            await this.sleep(this.randomInRange(5000, 15000));
+
+            return {
+                executed: true,
+                action: 'viewRandomChat',
+                chatId: randomChatId
+            };
+
+        } catch (error) {
+            console.error('Error viendo chat aleatorio:', error);
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // 🆕 Ver foto de perfil (ANTI-SPAM)
+    async viewProfilePicture(sessionId) {
+        try {
+            const sock = this.whatsappService.getClient(sessionId);
+            if (!sock) return { executed: false, reason: 'Cliente no disponible' };
+
+            console.log('🖼️ Viendo foto de perfil...');
+
+            // Obtener contactos recientes
+            const chats = await sock.groupFetchAllParticipating().catch(() => ({}));
+            const chatIds = Object.keys(chats);
+
+            if (chatIds.length === 0) {
+                console.log('⚠️ No hay contactos disponibles');
+                return { executed: false, reason: 'Sin contactos' };
+            }
+
+            // Seleccionar contacto aleatorio
+            const randomContactId = chatIds[Math.floor(Math.random() * chatIds.length)];
+
+            // Intentar obtener foto de perfil
+            try {
+                const profilePic = await sock.profilePictureUrl(randomContactId, 'image');
+                console.log(`✅ Foto de perfil obtenida: ${profilePic ? 'Sí' : 'No'}`);
+            } catch (err) {
+                console.log(`   ⚠️ No se pudo obtener foto de perfil: ${err.message}`);
+            }
+
+            // Esperar 3-8 segundos (simular que viste la foto)
+            await this.sleep(this.randomInRange(3000, 8000));
+
+            return {
+                executed: true,
+                action: 'viewProfilePicture',
+                contactId: randomContactId
+            };
+
+        } catch (error) {
+            console.error('Error viendo foto de perfil:', error);
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // 🆕 Reaccionar a mensaje aleatorio (ANTI-SPAM)
+    async reactToRandomMessage(sessionId) {
+        try {
+            const sock = this.whatsappService.getClient(sessionId);
+            if (!sock) return { executed: false, reason: 'Cliente no disponible' };
+
+            console.log('😊 Reaccionando a mensaje aleatorio...');
+
+            // Obtener chats
+            const chats = await sock.groupFetchAllParticipating().catch(() => ({}));
+            const chatIds = Object.keys(chats);
+
+            if (chatIds.length === 0) {
+                console.log('⚠️ No hay chats disponibles');
+                return { executed: false, reason: 'Sin chats' };
+            }
+
+            // Seleccionar chat aleatorio
+            const randomChatId = chatIds[Math.floor(Math.random() * chatIds.length)];
+
+            // Obtener mensajes recientes
+            try {
+                const messages = await sock.fetchMessagesFromWA(randomChatId, 10);
+                
+                if (messages && messages.length > 0) {
+                    // Seleccionar mensaje aleatorio
+                    const randomMsg = messages[Math.floor(Math.random() * messages.length)];
+
+                    // Emojis de reacción
+                    const reactions = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '👏'];
+                    const randomReaction = reactions[Math.floor(Math.random() * reactions.length)];
+
+                    // Reaccionar al mensaje
+                    await sock.sendMessage(randomChatId, {
+                        react: {
+                            text: randomReaction,
+                            key: randomMsg.key
+                        }
+                    });
+
+                    console.log(`✅ Reacción enviada: ${randomReaction} al mensaje ${randomMsg.key.id}`);
+
+                    return {
+                        executed: true,
+                        action: 'reactToRandomMessage',
+                        reaction: randomReaction,
+                        chatId: randomChatId,
+                        messageId: randomMsg.key.id
+                    };
+                }
+            } catch (err) {
+                console.log(`   ⚠️ No se pudo reaccionar: ${err.message}`);
+            }
+
+            return { executed: false, reason: 'No se pudo reaccionar' };
+
+        } catch (error) {
+            console.error('Error reaccionando a mensaje:', error);
             return { executed: false, error: error.message };
         }
     }

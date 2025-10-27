@@ -1194,7 +1194,8 @@ async function loadChatMessages(sessionId, chatId) {
 
 // Enviar respuesta
 async function sendReply(sessionId, chatId) {
-    const message = document.getElementById('replyMessage').value.trim();
+    const messageInput = document.getElementById('replyMessage');
+    const message = messageInput.value.trim();
     
     if (!message) {
         showAlert('Escribe un mensaje', 'warning');
@@ -1202,11 +1203,21 @@ async function sendReply(sessionId, chatId) {
     }
 
     try {
-        // Aquí llamarías a sendMessage con la sesión correcta
-        showAlert('Función de respuesta en desarrollo', 'info');
-        document.getElementById('replyMessage').value = '';
+        // Enviar mensaje
+        await apiRequest(`/chats/${sessionId}/${encodeURIComponent(chatId)}/reply`, {
+            method: 'POST',
+            body: JSON.stringify({ message })
+        });
+
+        showAlert('✅ Mensaje enviado', 'success');
+        messageInput.value = '';
+
+        // Recargar mensajes para mostrar la respuesta
+        await loadChatMessages(sessionId, chatId);
+
     } catch (error) {
-        showAlert('Error enviando mensaje', 'error');
+        console.error('Error enviando mensaje:', error);
+        showAlert('❌ Error enviando mensaje: ' + (error.message || ''), 'error');
     }
 }
 

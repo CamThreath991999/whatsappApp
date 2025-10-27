@@ -255,9 +255,10 @@ class CampaignService {
                         console.error(`✗ Error enviando mensaje ${message.id}:`, error);
 
                         // Marcar mensaje como fallido
+                        const errorMsg = error?.message || error?.toString() || 'Error desconocido';
                         await pool.execute(
                             'UPDATE mensajes SET estado = ?, error_mensaje = ? WHERE id = ?',
-                            ['fallido', error.message, message.id]
+                            ['fallido', errorMsg, message.id]
                         );
 
                         await pool.execute(
