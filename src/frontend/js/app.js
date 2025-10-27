@@ -1090,8 +1090,124 @@ async function sendManualMessages() {
 
 // CHATS
 async function loadChats() {
-    // Implementación básica
-    document.getElementById('chatsList').innerHTML = '<p class="empty-state">Selecciona un dispositivo conectado</p>';
+    try {
+        const response = await apiRequest('/chats');
+        const { chats, totalDevices } = response;
+
+        const chatsList = document.getElementById('chatsList');
+
+        if (!chats || chats.length === 0) {
+            chatsList.innerHTML = `
+                <div class="empty-state">
+                    <p>📭 No hay chats disponibles</p>
+                    ${totalDevices === 0 ? '<p>Conecta un dispositivo primero</p>' : ''}
+                </div>
+            `;
+            return;
+        }
+
+        // Renderizar chats
+        chatsList.innerHTML = chats.map(chat => {
+            const phoneNumber = chat.name || chat.id.split('@')[0];
+            const lastMsg = chat.lastMessage || 'Sin mensajes';
+            const time = new Date(chat.lastTimestamp * 1000).toLocaleString('es-PE', {
+                day: '2-digit',
+                month: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+
+            return `
+                <div class="chat-item" onclick="loadChatMessages('${chat.sessionId}', '${chat.id}')">
+                    <div class="chat-avatar">
+                        <span>${phoneNumber.substring(0, 2).toUpperCase()}</span>
+                    </div>
+                    <div class="chat-info">
+                        <div class="chat-name">${phoneNumber}</div>
+                        <div class="chat-last-message">${lastMsg.substring(0, 50)}</div>
+                    </div>
+                    <div class="chat-meta">
+                        <div class="chat-time">${time}</div>
+                        ${chat.unreadCount > 0 ? `<span class="chat-unread">${chat.unreadCount}</span>` : ''}
+                        <div class="chat-device">${chat.deviceName || 'Dispositivo'}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+    } catch (error) {
+        console.error('Error cargando chats:', error);
+        document.getElementById('chatsList').innerHTML = `
+            <div class="empty-state">
+                <p>❌ Error cargando chats</p>
+                <button class="btn btn-secondary" onclick="loadChats()">Reintentar</button>
+            </div>
+        `;
+    }
+}
+
+// Cargar mensajes de un chat específico
+async function loadChatMessages(sessionId, chatId) {
+    try {
+        const response = await apiRequest(`/chats/${sessionId}/${encodeURIComponent(chatId)}/messages`);
+        const { chat, messages } = response;
+
+        if (!chat) {
+            showAlert('Chat no encontrado', 'error');
+            return;
+        }
+
+        const chatMessages = document.getElementById('chatMessages');
+        const phoneNumber = chat.name || chat.id.split('@')[0];
+
+        // Actualizar header del chat
+        document.querySelector('#chatMessages').innerHTML = `
+            <div class="chat-header">
+                <h3>💬 ${phoneNumber}</h3>
+                <button class="btn btn-secondary btn-sm" onclick="loadChats()">← Volver</button>
+            </div>
+            <div class="messages-container">
+                ${messages && messages.length > 0 ? messages.map(msg => {
+                    const time = new Date(msg.timestamp * 1000).toLocaleString('es-PE', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                    return `
+                        <div class="message ${msg.fromMe ? 'message-sent' : 'message-received'}">
+                            <div class="message-text">${msg.text}</div>
+                            <div class="message-time">${time}</div>
+                        </div>
+                    `;
+                }).join('') : '<p class="empty-state">Sin mensajes</p>'}
+            </div>
+            <div class="chat-input">
+                <textarea id="replyMessage" placeholder="Escribe un mensaje..." rows="2"></textarea>
+                <button class="btn btn-primary" onclick="sendReply('${sessionId}', '${chatId}')">Enviar</button>
+            </div>
+        `;
+
+    } catch (error) {
+        console.error('Error cargando mensajes:', error);
+        showAlert('Error cargando mensajes', 'error');
+    }
+}
+
+// Enviar respuesta
+async function sendReply(sessionId, chatId) {
+    const message = document.getElementById('replyMessage').value.trim();
+    
+    if (!message) {
+        showAlert('Escribe un mensaje', 'warning');
+        return;
+    }
+
+    try {
+        // Aquí llamarías a sendMessage con la sesión correcta
+        showAlert('Función de respuesta en desarrollo', 'info');
+        document.getElementById('replyMessage').value = '';
+    } catch (error) {
+        showAlert('Error enviando mensaje', 'error');
+    }
 }
 
 // UTILITIES

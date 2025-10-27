@@ -3,20 +3,20 @@ const { redisHelper } = require('../../config/redis');
 class AntiSpamService {
     constructor() {
         this.config = {
-            minPauseBetweenMessages: 500,
-            maxPauseBetweenMessages: 1000,
-            minPauseAfterBatch: 5000,
-            maxPauseAfterBatch: 10000,
-            minPauseBetweenLots: 10000,
-            maxPauseBetweenLots: 40000,
+            minPauseBetweenMessages: 10000,      // 10 segundos
+            maxPauseBetweenMessages: 30000,      // 30 segundos
+            minPauseAfterBatch: 15000,           // 15 segundos
+            maxPauseAfterBatch: 45000,           // 45 segundos
+            minPauseBetweenLots: 30000,          // 30 segundos
+            maxPauseBetweenLots: 200000,         // 200 segundos (3.3 minutos)
             minMessagesPerBatch: 1,
-            maxMessagesPerBatch: 5,
+            maxMessagesPerBatch: 3,              // Reducido de 5 a 3 para ser más cauteloso
             lotRanges: [
-                { min: 1, max: 10 },
-                { min: 10, max: 20 },
-                { min: 20, max: 30 },
-                { min: 30, max: 40 },
-                { min: 40, max: 50 }
+                { min: 1, max: 5 },              // Reducido para ser más cauteloso
+                { min: 5, max: 10 },
+                { min: 10, max: 15 },
+                { min: 15, max: 20 },
+                { min: 20, max: 25 }
             ]
         };
     }

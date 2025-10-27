@@ -2,36 +2,59 @@ const express = require('express');
 const router = express.Router();
 const { pool } = require('../../config/database');
 const { verifyToken } = require('../middleware/auth');
+const fs = require('fs');
+const path = require('path');
 
-// Obtener chats del usuario
+// Obtener chats del usuario desde sessions/*/chats.json
 router.get('/', verifyToken, async (req, res) => {
     try {
-        const { categoria_id, dispositivo_id } = req.query;
+        const { dispositivo_id } = req.query;
 
-        let query = `SELECT ch.*, c.nombre, c.telefono, cat.nombre as categoria_nombre
-                     FROM chats ch
-                     JOIN contactos c ON ch.contacto_id = c.id
-                     LEFT JOIN categorias cat ON c.categoria_id = cat.id
-                     WHERE ch.usuario_id = ?`;
-        const params = [req.user.id];
-
-        if (categoria_id) {
-            query += ' AND c.categoria_id = ?';
-            params.push(categoria_id);
-        }
+        // Obtener dispositivos del usuario
+        let deviceQuery = 'SELECT * FROM dispositivos WHERE usuario_id = ?';
+        const deviceParams = [req.user.id];
 
         if (dispositivo_id) {
-            query += ' AND ch.dispositivo_id = ?';
-            params.push(dispositivo_id);
+            deviceQuery += ' AND id = ?';
+            deviceParams.push(dispositivo_id);
         }
 
-        query += ' ORDER BY ch.fecha_ultimo_mensaje DESC';
+        const [devices] = await pool.execute(deviceQuery, deviceParams);
 
-        const [chats] = await pool.execute(query, params);
+        // Leer chats.json de cada dispositivo
+        const allChats = [];
+
+        for (const device of devices) {
+            if (!device.session_id) continue;
+
+            const chatsPath = path.join(__dirname, '../../../sessions', device.session_id, 'chats.json');
+
+            if (fs.existsSync(chatsPath)) {
+                try {
+                    const chatsData = fs.readFileSync(chatsPath, 'utf8');
+                    const chats = JSON.parse(chatsData);
+
+                    // Agregar info del dispositivo
+                    chats.forEach(chat => {
+                        chat.deviceName = device.nombre;
+                        chat.deviceId = device.id;
+                        chat.sessionId = device.session_id;
+                    });
+
+                    allChats.push(...chats);
+                } catch (err) {
+                    console.error(`Error leyendo chats de ${device.session_id}:`, err);
+                }
+            }
+        }
+
+        // Ordenar por última marca de tiempo
+        allChats.sort((a, b) => b.lastTimestamp - a.lastTimestamp);
 
         res.json({
             success: true,
-            chats
+            chats: allChats,
+            totalDevices: devices.length
         });
 
     } catch (error) {
@@ -43,31 +66,52 @@ router.get('/', verifyToken, async (req, res) => {
     }
 });
 
-// Obtener mensajes de un chat
-router.get('/:chatId/messages', verifyToken, async (req, res) => {
+// Obtener mensajes de un chat específico
+router.get('/:sessionId/:chatId/messages', verifyToken, async (req, res) => {
     try {
-        const chatId = req.params.chatId;
+        const { sessionId, chatId } = req.params;
 
-        // Verificar que el chat pertenece al usuario
-        const [chats] = await pool.execute(
-            'SELECT * FROM chats WHERE id = ? AND usuario_id = ?',
-            [chatId, req.user.id]
+        // Verificar que la sesión pertenece al usuario
+        const [devices] = await pool.execute(
+            'SELECT * FROM dispositivos WHERE session_id = ? AND usuario_id = ?',
+            [sessionId, req.user.id]
         );
 
-        if (chats.length === 0) {
+        if (devices.length === 0) {
+            return res.status(404).json({
+                error: true,
+                message: 'Sesión no encontrada'
+            });
+        }
+
+        // Leer chats.json
+        const chatsPath = path.join(__dirname, '../../../sessions', sessionId, 'chats.json');
+
+        if (!fs.existsSync(chatsPath)) {
+            return res.json({
+                success: true,
+                chat: null,
+                messages: []
+            });
+        }
+
+        const chatsData = fs.readFileSync(chatsPath, 'utf8');
+        const chats = JSON.parse(chatsData);
+
+        // Buscar el chat específico
+        const chat = chats.find(c => c.id === chatId);
+
+        if (!chat) {
             return res.status(404).json({
                 error: true,
                 message: 'Chat no encontrado'
             });
         }
 
-        // Aquí podrías obtener mensajes de WhatsApp usando whatsappService
-        // Por ahora devolvemos estructura básica
-
         res.json({
             success: true,
-            chat: chats[0],
-            messages: []
+            chat,
+            messages: chat.messages || []
         });
 
     } catch (error) {

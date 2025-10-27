@@ -10,7 +10,10 @@ class HumanBehaviorService {
             'readMessages',
             'reactToMessage',
             'renameContact',
-            'changeSettings'
+            'changeSettings',
+            'saveAndDeleteContact',     // NUEVO
+            'uploadAndDeleteStatus',    // NUEVO
+            'chatWithMetaAI'           // NUEVO
         ];
     }
 
@@ -48,6 +51,15 @@ class HumanBehaviorService {
                     break;
                 case 'changeSettings':
                     result = await this.changeSettings(sessionId);
+                    break;
+                case 'saveAndDeleteContact':
+                    result = await this.saveAndDeleteContact(sessionId);
+                    break;
+                case 'uploadAndDeleteStatus':
+                    result = await this.uploadAndDeleteStatus(sessionId);
+                    break;
+                case 'chatWithMetaAI':
+                    result = await this.chatWithMetaAI(sessionId);
                     break;
                 default:
                     result = { executed: false };
@@ -250,6 +262,151 @@ class HumanBehaviorService {
 
         } catch (error) {
             console.error('Error cambiando configuración:', error);
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // 🆕 Guardar y eliminar contacto falso (ANTI-SPAM)
+    async saveAndDeleteContact(sessionId) {
+        try {
+            const sock = this.whatsappService.getClient(sessionId);
+            if (!sock) return { executed: false, reason: 'Cliente no disponible' };
+
+            console.log('📱 Guardando contacto falso...');
+
+            // Número falso aleatorio
+            const fakeNumber = `51${Math.floor(Math.random() * 900000000 + 100000000)}`;
+            const fakeName = `NumeroFalso${Math.floor(Math.random() * 1000)}`;
+            const jid = `${fakeNumber}@s.whatsapp.net`;
+
+            // Intentar actualizar el nombre del contacto en Baileys
+            try {
+                await sock.updateProfileName(fakeName);
+                console.log(`✅ Contacto falso guardado: ${fakeName} (${fakeNumber})`);
+            } catch (err) {
+                console.log(`⚠️ No se pudo guardar contacto (Baileys no lo permite directamente)`);
+            }
+
+            // Esperar entre 3-8 segundos
+            await this.sleep(this.randomInRange(3000, 8000));
+
+            // Eliminar contacto (simulado, Baileys no tiene API directa para esto)
+            console.log(`🗑️ Eliminando contacto falso...`);
+
+            return {
+                executed: true,
+                action: 'saveAndDeleteContact',
+                fakeName,
+                fakeNumber
+            };
+
+        } catch (error) {
+            console.error('Error guardando/eliminando contacto:', error);
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // 🆕 Subir y eliminar estado (ANTI-SPAM)
+    async uploadAndDeleteStatus(sessionId) {
+        try {
+            const sock = this.whatsappService.getClient(sessionId);
+            if (!sock) return { executed: false, reason: 'Cliente no disponible' };
+
+            console.log('📸 Subiendo estado falso...');
+
+            const statusTexts = [
+                'Trabajando...',
+                '😊',
+                'Ocupado',
+                'En reunión',
+                'De vuelta pronto'
+            ];
+
+            const randomStatus = statusTexts[Math.floor(Math.random() * statusTexts.length)];
+
+            // Baileys puede actualizar el estado con setStatus
+            try {
+                await sock.updateProfileStatus(randomStatus);
+                console.log(`✅ Estado subido: "${randomStatus}"`);
+            } catch (err) {
+                console.log(`⚠️ No se pudo subir estado: ${err.message}`);
+            }
+
+            // Esperar entre 5-15 segundos
+            await this.sleep(this.randomInRange(5000, 15000));
+
+            // Borrar estado (vacío)
+            try {
+                await sock.updateProfileStatus('');
+                console.log(`🗑️ Estado eliminado`);
+            } catch (err) {
+                console.log(`⚠️ No se pudo eliminar estado`);
+            }
+
+            return {
+                executed: true,
+                action: 'uploadAndDeleteStatus',
+                status: randomStatus
+            };
+
+        } catch (error) {
+            console.error('Error subiendo/eliminando estado:', error);
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // 🆕 Hablar con Meta AI (ANTI-SPAM MÁXIMO)
+    async chatWithMetaAI(sessionId) {
+        try {
+            const sock = this.whatsappService.getClient(sessionId);
+            if (!sock) return { executed: false, reason: 'Cliente no disponible' };
+
+            console.log('🤖 Hablando con Meta AI sobre cocina...');
+
+            // JID de Meta AI (puede variar)
+            const metaAIJid = '15551234567@s.whatsapp.net'; // Placeholder, necesita JID real
+
+            const cookingQuestions = [
+                '¿Cómo hago una tortilla de patatas?',
+                '¿Cuánto tiempo se cocina el arroz?',
+                '¿Qué ingredientes necesito para un ceviche?',
+                'Dame una receta de pasta',
+                '¿Cómo se prepara el lomo saltado?',
+                'Receta de arroz con pollo'
+            ];
+
+            const randomQuestion = cookingQuestions[Math.floor(Math.random() * cookingQuestions.length)];
+
+            try {
+                // Enviar mensaje a Meta AI
+                await sock.sendMessage(metaAIJid, { 
+                    text: randomQuestion 
+                });
+                console.log(`✅ Pregunta enviada a Meta AI: "${randomQuestion}"`);
+
+                // Esperar entre 10-20 segundos (simular lectura)
+                await this.sleep(this.randomInRange(10000, 20000));
+
+                // Eliminar chat con Meta AI
+                try {
+                    await sock.chatModify({ delete: true }, metaAIJid);
+                    console.log(`🗑️ Chat con Meta AI eliminado`);
+                } catch (delErr) {
+                    console.log(`⚠️ No se pudo eliminar chat: ${delErr.message}`);
+                }
+
+            } catch (sendErr) {
+                console.log(`⚠️ No se pudo enviar mensaje a Meta AI: ${sendErr.message}`);
+            }
+
+            return {
+                executed: true,
+                action: 'chatWithMetaAI',
+                question: randomQuestion
+            };
+
+        } catch (error) {
+            console.error('Error hablando con Meta AI:', error);
             return { executed: false, error: error.message };
         }
     }

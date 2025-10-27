@@ -184,12 +184,17 @@ class CampaignService {
                         duration: step.duration
                     });
 
-                    // Durante la pausa, ejecutar comportamiento humano
+                    // Durante la pausa, ejecutar comportamiento humano (probabilidad alta)
                     const deviceId = devices[Math.floor(Math.random() * devices.length)].id;
                     const sessionId = devices.find(d => d.id === deviceId)?.session_id;
                     
                     if (sessionId) {
-                        await this.humanBehavior.maybeExecuteBehavior(sessionId, deviceId, 0.5);
+                        // Ejecutar múltiples comportamientos durante pausa larga
+                        const numBehaviors = Math.floor(Math.random() * 3) + 1; // 1-3 comportamientos
+                        for (let b = 0; b < numBehaviors; b++) {
+                            await this.humanBehavior.maybeExecuteBehavior(sessionId, deviceId, 0.8); // 80% probabilidad
+                            await this.antiSpam.sleep(this.antiSpam.randomInRange(3000, 8000));
+                        }
                     }
 
                     await this.antiSpam.sleep(step.duration);
@@ -265,13 +270,13 @@ class CampaignService {
                 // Pausa después del batch
                 await this.antiSpam.sleep(step.pauseAfter);
 
-                // Probabilidad de ejecutar comportamiento humano
-                const device = devices.find(d => d.id === step.deviceId);
-                if (device) {
+                // Comportamiento humano aleatorio después de cada batch
+                const deviceForBehavior = devices.find(d => d.id === step.deviceId);
+                if (deviceForBehavior) {
                     await this.humanBehavior.maybeExecuteBehavior(
-                        device.session_id,
-                        device.id,
-                        0.2
+                        deviceForBehavior.session_id, 
+                        deviceForBehavior.id, 
+                        0.6  // 60% probabilidad después de cada batch (aumentado)
                     );
                 }
             }
