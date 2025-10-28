@@ -1089,11 +1089,22 @@ async function sendManualMessages() {
 }
 
 // CHATS
+let currentDeviceFilter = '';
+let allChatsData = [];
+let currentChatSession = null;
+let currentChatId = null;
+
 async function loadChats() {
     try {
-        const response = await apiRequest('/chats');
+        // Cargar dispositivos para el filtro
+        await loadDevicesForChatFilter();
+        
+        // Cargar chats con filtro si existe
+        const endpoint = currentDeviceFilter ? `/chats?dispositivo_id=${currentDeviceFilter}` : '/chats';
+        const response = await apiRequest(endpoint);
         const { chats, totalDevices } = response;
 
+        allChatsData = chats || [];
         const chatsList = document.getElementById('chatsList');
 
         if (!chats || chats.length === 0) {
@@ -1106,7 +1117,7 @@ async function loadChats() {
             return;
         }
 
-        // Renderizar chats
+        // Renderizar chats con foto de perfil
         chatsList.innerHTML = chats.map(chat => {
             const phoneNumber = chat.name || chat.id.split('@')[0];
             const lastMsg = chat.lastMessage || 'Sin mensajes';
@@ -1116,11 +1127,14 @@ async function loadChats() {
                 hour: '2-digit',
                 minute: '2-digit'
             });
+            
+            // Iniciales para el avatar
+            const initials = phoneNumber.substring(0, 2).toUpperCase();
 
             return `
                 <div class="chat-item" onclick="loadChatMessages('${chat.sessionId}', '${chat.id}')">
-                    <div class="chat-avatar">
-                        <span>${phoneNumber.substring(0, 2).toUpperCase()}</span>
+                    <div class="chat-avatar" style="background: ${getColorFromString(phoneNumber)}">
+                        <span>${initials}</span>
                     </div>
                     <div class="chat-info">
                         <div class="chat-name">${phoneNumber}</div>
@@ -1146,9 +1160,53 @@ async function loadChats() {
     }
 }
 
+// Cargar dispositivos para el filtro
+async function loadDevicesForChatFilter() {
+    try {
+        const data = await apiRequest('/devices');
+        const select = document.getElementById('chatDeviceFilter');
+        
+        if (!select) return;
+        
+        select.innerHTML = '<option value="">Todos los dispositivos</option>';
+        
+        data.devices.forEach(device => {
+            const option = document.createElement('option');
+            option.value = device.id;
+            option.textContent = `${device.nombre_dispositivo} (${device.estado})`;
+            if (device.id == currentDeviceFilter) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+        
+        // Event listener para cambio de filtro
+        select.onchange = (e) => {
+            currentDeviceFilter = e.target.value;
+            loadChats();
+        };
+        
+    } catch (error) {
+        console.error('Error cargando dispositivos para filtro:', error);
+    }
+}
+
+// Generar color basado en string (para avatares)
+function getColorFromString(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const colors = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8', '#6610f2', '#e83e8c', '#fd7e14'];
+    return colors[Math.abs(hash) % colors.length];
+}
+
 // Cargar mensajes de un chat específico
 async function loadChatMessages(sessionId, chatId) {
     try {
+        currentChatSession = sessionId;
+        currentChatId = chatId;
+        
         const response = await apiRequest(`/chats/${sessionId}/${encodeURIComponent(chatId)}/messages`);
         const { chat, messages } = response;
 
@@ -1157,45 +1215,99 @@ async function loadChatMessages(sessionId, chatId) {
             return;
         }
 
-        const chatMessages = document.getElementById('chatMessages');
         const phoneNumber = chat.name || chat.id.split('@')[0];
-
+        const initials = phoneNumber.substring(0, 2).toUpperCase();
+        
         // Actualizar header del chat
-        document.querySelector('#chatMessages').innerHTML = `
-            <div class="chat-header">
-                <h3>💬 ${phoneNumber}</h3>
-                <button class="btn btn-secondary btn-sm" onclick="loadChats()">← Volver</button>
-            </div>
-            <div class="messages-container">
-                ${messages && messages.length > 0 ? messages.map(msg => {
-                    const time = new Date(msg.timestamp * 1000).toLocaleString('es-PE', {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    });
-                    return `
-                        <div class="message ${msg.fromMe ? 'message-sent' : 'message-received'}">
-                            <div class="message-text">${msg.text}</div>
-                            <div class="message-time">${time}</div>
-                        </div>
-                    `;
-                }).join('') : '<p class="empty-state">Sin mensajes</p>'}
-            </div>
-            <div class="chat-input">
-                <textarea id="replyMessage" placeholder="Escribe un mensaje..." rows="2"></textarea>
-                <button class="btn btn-primary" onclick="sendReply('${sessionId}', '${chatId}')">Enviar</button>
-            </div>
-        `;
+        const chatNameElement = document.getElementById('activeChatName');
+        if (chatNameElement) {
+            chatNameElement.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div class="chat-avatar" style="background: ${getColorFromString(phoneNumber)}; width: 40px; height: 40px; font-size: 16px;">
+                        <span>${initials}</span>
+                    </div>
+                    <div>
+                        <div style="font-weight: bold;">${phoneNumber}</div>
+                        <div style="font-size: 12px; color: #666;">Chat de WhatsApp</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Mostrar botón de descarga
+        const downloadBtn = document.getElementById('downloadChatBtn');
+        if (downloadBtn) {
+            downloadBtn.style.display = 'block';
+            downloadBtn.onclick = () => downloadChat(sessionId, chatId, phoneNumber);
+        }
+
+        // Actualizar contenedor de mensajes
+        const messagesContainer = document.getElementById('messagesContainer');
+        if (!messagesContainer) {
+            console.error('messagesContainer no encontrado');
+            return;
+        }
+
+        if (!messages || messages.length === 0) {
+            messagesContainer.innerHTML = '<p class="empty-state">Sin mensajes</p>';
+        } else {
+            messagesContainer.innerHTML = messages.map(msg => {
+                const time = new Date(msg.timestamp * 1000).toLocaleString('es-PE', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+                return `
+                    <div class="message ${msg.fromMe ? 'message-sent' : 'message-received'}">
+                        <div class="message-text">${escapeHtml(msg.text || '')}</div>
+                        <div class="message-time">${time}</div>
+                    </div>
+                `;
+            }).join('');
+            
+            // Scroll al final
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // Mostrar input de respuesta
+        const chatInput = document.querySelector('.chat-input');
+        if (chatInput) {
+            chatInput.style.display = 'flex';
+        }
+        
+        // Configurar botón de envío
+        const sendBtn = document.getElementById('sendReplyBtn');
+        if (sendBtn) {
+            sendBtn.onclick = () => sendReply(sessionId, chatId);
+        }
+        
+        // Configurar Enter para enviar (Shift+Enter para nueva línea)
+        const replyInput = document.getElementById('replyMessage');
+        if (replyInput) {
+            replyInput.onkeydown = (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendReply(sessionId, chatId);
+                }
+            };
+        }
 
     } catch (error) {
         console.error('Error cargando mensajes:', error);
-        showAlert('Error cargando mensajes', 'error');
+        showAlert('Error cargando mensajes: ' + error.message, 'error');
     }
+}
+
+// Escape HTML para prevenir XSS
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // Enviar respuesta
 async function sendReply(sessionId, chatId) {
     const messageInput = document.getElementById('replyMessage');
-    const message = messageInput.value.trim();
+    const message = messageInput ? messageInput.value.trim() : '';
     
     if (!message) {
         showAlert('Escribe un mensaje', 'warning');
@@ -1203,21 +1315,99 @@ async function sendReply(sessionId, chatId) {
     }
 
     try {
-        // Enviar mensaje
+        // Deshabilitar input mientras se envía
+        if (messageInput) messageInput.disabled = true;
+        const sendBtn = document.getElementById('sendReplyBtn');
+        if (sendBtn) sendBtn.disabled = true;
+
+        // Agregar mensaje optimísticamente a la UI
+        const messagesContainer = document.getElementById('messagesContainer');
+        if (messagesContainer) {
+            const time = new Date().toLocaleString('es-PE', {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            const messageHtml = `
+                <div class="message message-sent">
+                    <div class="message-text">${escapeHtml(message)}</div>
+                    <div class="message-time">${time} ⏳</div>
+                </div>
+            `;
+            messagesContainer.innerHTML += messageHtml;
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // Enviar mensaje al servidor
         await apiRequest(`/chats/${sessionId}/${encodeURIComponent(chatId)}/reply`, {
             method: 'POST',
             body: JSON.stringify({ message })
         });
 
+        // Limpiar input
+        if (messageInput) messageInput.value = '';
+        
         showAlert('✅ Mensaje enviado', 'success');
-        messageInput.value = '';
 
-        // Recargar mensajes para mostrar la respuesta
-        await loadChatMessages(sessionId, chatId);
+        // Recargar mensajes después de un breve delay
+        setTimeout(() => {
+            loadChatMessages(sessionId, chatId);
+        }, 500);
 
     } catch (error) {
         console.error('Error enviando mensaje:', error);
         showAlert('❌ Error enviando mensaje: ' + (error.message || ''), 'error');
+        
+        // Recargar para mostrar estado correcto
+        loadChatMessages(sessionId, chatId);
+    } finally {
+        // Rehabilitar input
+        if (messageInput) messageInput.disabled = false;
+        const sendBtn = document.getElementById('sendReplyBtn');
+        if (sendBtn) sendBtn.disabled = false;
+    }
+}
+
+// Descargar chat
+async function downloadChat(sessionId, chatId, phoneNumber) {
+    try {
+        showAlert('⏳ Preparando descarga...', 'info');
+        
+        const response = await apiRequest(`/chats/${sessionId}/${encodeURIComponent(chatId)}/messages`);
+        const { messages } = response;
+        
+        if (!messages || messages.length === 0) {
+            showAlert('No hay mensajes para descargar', 'warning');
+            return;
+        }
+        
+        // Crear contenido del archivo
+        let content = `Chat con: ${phoneNumber}\n`;
+        content += `Fecha de descarga: ${new Date().toLocaleString('es-PE')}\n`;
+        content += `Total de mensajes: ${messages.length}\n`;
+        content += `${'='.repeat(60)}\n\n`;
+        
+        messages.forEach(msg => {
+            const date = new Date(msg.timestamp * 1000).toLocaleString('es-PE');
+            const sender = msg.fromMe ? 'Yo' : phoneNumber;
+            content += `[${date}] ${sender}:\n${msg.text}\n\n`;
+        });
+        
+        // Descargar archivo
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `chat_${phoneNumber}_${new Date().toISOString().split('T')[0]}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        showAlert('✅ Chat descargado', 'success');
+        
+    } catch (error) {
+        console.error('Error descargando chat:', error);
+        showAlert('❌ Error al descargar chat', 'error');
     }
 }
 
@@ -1258,4 +1448,3 @@ async function loadScheduledCampaigns() {
     const container = document.getElementById('scheduledCampaigns');
     container.innerHTML = '<p class="empty-state">No hay campañas agendadas</p>';
 }
-

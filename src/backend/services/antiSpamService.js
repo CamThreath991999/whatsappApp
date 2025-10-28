@@ -3,21 +3,26 @@ const { redisHelper } = require('../../config/redis');
 class AntiSpamService {
     constructor() {
         this.config = {
-            minPauseBetweenMessages: 10000,      // 10 segundos
-            maxPauseBetweenMessages: 30000,      // 30 segundos
-            minPauseAfterBatch: 15000,           // 15 segundos
-            maxPauseAfterBatch: 45000,           // 45 segundos
-            minPauseBetweenLots: 30000,          // 30 segundos
-            maxPauseBetweenLots: 200000,         // 200 segundos (3.3 minutos)
+            // Pausas MÁS LARGAS para evitar bloqueo
+            minPauseBetweenMessages: 15000,      // 15 segundos (aumentado de 10)
+            maxPauseBetweenMessages: 45000,      // 45 segundos (aumentado de 30)
+            minPauseAfterBatch: 30000,           // 30 segundos (aumentado de 15)
+            maxPauseAfterBatch: 90000,           // 90 segundos / 1.5 min (aumentado de 45)
+            minPauseBetweenLots: 120000,         // 2 minutos (aumentado de 30s)
+            maxPauseBetweenLots: 300000,         // 5 minutos (aumentado de 3.3 min)
             minMessagesPerBatch: 1,
-            maxMessagesPerBatch: 3,              // Reducido de 5 a 3 para ser más cauteloso
+            maxMessagesPerBatch: 2,              // REDUCIDO a 2 (antes 3) - MÁS SEGURO
             lotRanges: [
-                { min: 1, max: 5 },              // Reducido para ser más cauteloso
-                { min: 5, max: 10 },
-                { min: 10, max: 15 },
-                { min: 15, max: 20 },
-                { min: 20, max: 25 }
-            ]
+                { min: 1, max: 3 },              // Mini lotes: 1-3 mensajes
+                { min: 3, max: 7 },              // Pequeños: 3-7 mensajes
+                { min: 7, max: 12 },             // Medianos: 7-12 mensajes
+                { min: 12, max: 18 },            // Grandes: 12-18 mensajes
+                { min: 18, max: 25 }             // Muy grandes: 18-25 mensajes
+            ],
+            // Límites de seguridad
+            maxMessagesPerDevice: 50,            // Máximo 50 mensajes por dispositivo antes de cambiar
+            maxMessagesBeforeHumanBehavior: 10,  // Cada 10 mensajes ejecutar comportamiento humano
+            humanBehaviorProbability: 0.8        // 80% probabilidad de comportamiento humano
         };
     }
 
@@ -141,57 +146,78 @@ class AntiSpamService {
         return structure;
     }
 
-    // Generar plan de envío con rotación de dispositivos
+    // Generar plan de envío con rotación MEJORADA de dispositivos
     generateSendingPlan(campaignMessages, devices) {
         const plan = [];
         
-        // Agrupar mensajes por categoría/dispositivo
+        console.log(`\n🎯 === GENERANDO PLAN DE ENVÍO ===`);
+        console.log(`   📊 Total mensajes: ${campaignMessages.length}`);
+        console.log(`   📱 Total dispositivos: ${devices.length}`);
+        
+        // **AJUSTE DINÁMICO SEGÚN DISPOSITIVOS**
+        const isSingleDevice = devices.length === 1;
+        const deviceMultiplier = Math.min(devices.length, 5); // Max 5 dispositivos
+        
+        if (isSingleDevice) {
+            console.log(`   ⚠️ MODO ULTRA-SEGURO: Solo 1 dispositivo - Pausas MÁS LARGAS`);
+            // Aumentar pausas en 50% para 1 solo dispositivo
+            this.config.minPauseBetweenMessages *= 1.5;
+            this.config.maxPauseBetweenMessages *= 1.5;
+            this.config.minPauseAfterBatch *= 1.5;
+            this.config.maxPauseAfterBatch *= 1.5;
+            this.config.maxMessagesPerBatch = 1; // Solo 1 mensaje por vez
+        } else {
+            console.log(`   🔄 MODO ROTACIÓN: ${devices.length} dispositivos - Pausas optimizadas`);
+            // Con múltiples dispositivos, pausas pueden ser un poco más cortas
+            const reduction = Math.min(0.8 + (deviceMultiplier * 0.05), 1.0);
+            this.config.minPauseBetweenMessages = Math.floor(15000 * reduction);
+            this.config.maxPauseBetweenMessages = Math.floor(45000 * reduction);
+        }
+        
+        // Agrupar mensajes por dispositivo
         const messagesByDevice = {};
         devices.forEach(device => {
             messagesByDevice[device.id] = campaignMessages.filter(
                 msg => msg.dispositivo_id === device.id
             );
+            console.log(`   📱 Dispositivo ${device.id}: ${messagesByDevice[device.id].length} mensajes`);
         });
 
-        // Calcular estructura de lotes para cada dispositivo
+        // Estructuras para tracking
         const deviceStructures = {};
         Object.keys(messagesByDevice).forEach(deviceId => {
             const messages = messagesByDevice[deviceId];
             if (messages.length > 0) {
                 deviceStructures[deviceId] = {
                     messages,
-                    structure: this.calculateBatchStructure(messages.length),
-                    currentIndex: 0
+                    currentIndex: 0,
+                    messagesSentInSession: 0
                 };
             }
         });
 
-        // Generar plan de envío alternando dispositivos
+        // Generar plan con ROTACIÓN ALEATORIA
         const activeDevices = Object.keys(deviceStructures);
         let totalSent = 0;
         const totalMessages = campaignMessages.length;
         let lotCounter = 0;
         let messagesInCurrentLot = 0;
+        let stepCounter = 0;
 
         while (totalSent < totalMessages && activeDevices.length > 0) {
-            // Seleccionar dispositivo aleatorio
+            // **ROTACIÓN ALEATORIA** - Seleccionar dispositivo random
             const randomDeviceIndex = this.randomInRange(0, activeDevices.length - 1);
             const deviceId = activeDevices[randomDeviceIndex];
             const deviceData = deviceStructures[deviceId];
 
+            // Si este dispositivo terminó sus mensajes, removerlo
             if (deviceData.currentIndex >= deviceData.messages.length) {
-                // Este dispositivo ya terminó sus mensajes
+                console.log(`   ✅ Dispositivo ${deviceId} completó todos sus mensajes`);
                 activeDevices.splice(randomDeviceIndex, 1);
                 continue;
             }
 
-            // Obtener siguiente batch
-            const currentLotIndex = Math.floor(
-                deviceData.currentIndex / deviceData.structure.reduce(
-                    (sum, lot) => sum + lot.totalInLot, 0
-                ) * deviceData.structure.length
-            );
-            
+            // Tamaño de batch ALEATORIO (1-2 mensajes)
             const batchSize = this.randomInRange(
                 this.config.minMessagesPerBatch,
                 this.config.maxMessagesPerBatch
@@ -203,40 +229,64 @@ class AntiSpamService {
             );
 
             if (messagesToSend.length > 0) {
+                stepCounter++;
+                
                 plan.push({
-                    deviceId,
+                    type: 'send_batch',
+                    deviceId: parseInt(deviceId),
                     messages: messagesToSend,
-                    pauseBefore: this.randomInRange(
+                    pauseBefore: this.gaussianRandom(
                         this.config.minPauseBetweenMessages,
                         this.config.maxPauseBetweenMessages
                     ),
-                    pauseAfter: this.randomInRange(
+                    pauseAfter: this.gaussianRandom(
                         this.config.minPauseAfterBatch,
                         this.config.maxPauseAfterBatch
-                    )
+                    ),
+                    stepNumber: stepCounter
                 });
 
                 deviceData.currentIndex += messagesToSend.length;
+                deviceData.messagesSentInSession += messagesToSend.length;
                 totalSent += messagesToSend.length;
                 messagesInCurrentLot += messagesToSend.length;
 
-                // Verificar si completamos un lote (cada 50 mensajes)
-                if (messagesInCurrentLot >= 50) {
+                console.log(`   🔄 Paso ${stepCounter}: Dispositivo ${deviceId} enviará ${messagesToSend.length} mensaje(s) [${totalSent}/${totalMessages}]`);
+
+                // **PAUSA DE LOTE** cada 30-50 mensajes (aleatorio)
+                const lotThreshold = this.randomInRange(30, 50);
+                if (messagesInCurrentLot >= lotThreshold) {
                     lotCounter++;
                     messagesInCurrentLot = 0;
                     
-                    // Agregar pausa larga entre lotes
+                    const lotPause = this.gaussianRandom(
+                        this.config.minPauseBetweenLots,
+                        this.config.maxPauseBetweenLots
+                    );
+                    
                     plan.push({
                         type: 'lot_pause',
-                        duration: this.randomInRange(
-                            this.config.minPauseBetweenLots,
-                            this.config.maxPauseBetweenLots
-                        ),
+                        duration: lotPause,
                         lotNumber: lotCounter
                     });
+                    
+                    console.log(`   ⏸️ PAUSA DE LOTE ${lotCounter}: ${Math.floor(lotPause / 1000)}s`);
+                }
+
+                // **COMPORTAMIENTO HUMANO** cada 10-15 mensajes
+                if (totalSent % this.randomInRange(10, 15) === 0) {
+                    plan.push({
+                        type: 'human_behavior',
+                        deviceId: parseInt(deviceId),
+                        probability: this.config.humanBehaviorProbability
+                    });
+                    console.log(`   🤖 Comportamiento humano programado`);
                 }
             }
         }
+
+        console.log(`   ✅ Plan generado: ${plan.length} pasos, ${lotCounter} lotes`);
+        console.log(`🎯 === FIN PLAN DE ENVÍO ===\n`);
 
         return plan;
     }
@@ -321,4 +371,3 @@ class AntiSpamService {
 }
 
 module.exports = AntiSpamService;
-

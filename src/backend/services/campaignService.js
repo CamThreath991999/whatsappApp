@@ -173,27 +173,27 @@ class CampaignService {
                 const step = plan[i];
                 campaignData.currentStep = i;
 
+                // **PAUSA DE LOTE**
                 if (step.type === 'lot_pause') {
-                    // Pausa entre lotes
-                    console.log(`⏱️ Pausa de lote ${step.lotNumber}: ${step.duration}ms`);
+                    console.log(`⏱️ Pausa de lote ${step.lotNumber}: ${Math.floor(step.duration / 1000)}s`);
                     
-                    // Emitir progreso
                     this.io.emit(`campaign-progress-${campaignId}`, {
                         type: 'lot_pause',
                         lotNumber: step.lotNumber,
                         duration: step.duration
                     });
 
-                    // Durante la pausa, ejecutar comportamiento humano (probabilidad alta)
-                    const deviceId = devices[Math.floor(Math.random() * devices.length)].id;
-                    const sessionId = devices.find(d => d.id === deviceId)?.session_id;
-                    
-                    if (sessionId) {
-                        // Ejecutar múltiples comportamientos durante pausa larga
-                        const numBehaviors = Math.floor(Math.random() * 3) + 1; // 1-3 comportamientos
+                    // Durante pausa larga, ejecutar VARIOS comportamientos humanos
+                    const randomDevice = devices[Math.floor(Math.random() * devices.length)];
+                    if (randomDevice && randomDevice.session_id) {
+                        const numBehaviors = Math.floor(Math.random() * 3) + 2; // 2-4 comportamientos
                         for (let b = 0; b < numBehaviors; b++) {
-                            await this.humanBehavior.maybeExecuteBehavior(sessionId, deviceId, 0.8); // 80% probabilidad
-                            await this.antiSpam.sleep(this.antiSpam.randomInRange(3000, 8000));
+                            await this.humanBehavior.maybeExecuteBehavior(
+                                randomDevice.session_id, 
+                                randomDevice.id, 
+                                0.9  // 90% probabilidad en pausas largas
+                            );
+                            await this.antiSpam.sleep(this.antiSpam.randomInRange(5000, 15000));
                         }
                     }
 
@@ -201,11 +201,26 @@ class CampaignService {
                     continue;
                 }
 
-                // Enviar batch de mensajes
-                console.log(`📤 Enviando batch de ${step.messages.length} mensajes desde dispositivo ${step.deviceId}`);
+                // **COMPORTAMIENTO HUMANO**
+                if (step.type === 'human_behavior') {
+                    const device = devices.find(d => d.id === step.deviceId);
+                    if (device && device.session_id) {
+                        console.log(`🤖 Ejecutando comportamiento humano en dispositivo ${step.deviceId}`);
+                        await this.humanBehavior.maybeExecuteBehavior(
+                            device.session_id, 
+                            device.id, 
+                            step.probability || 0.8
+                        );
+                    }
+                    continue;
+                }
 
-                // Pausa antes del batch
-                await this.antiSpam.sleep(step.pauseBefore);
+                // **ENVIAR BATCH**
+                if (step.type === 'send_batch' || step.messages) {
+                    console.log(`📤 Paso ${step.stepNumber || i}: Dispositivo ${step.deviceId} enviará ${step.messages.length} mensaje(s)`);
+
+                    // Pausa antes del batch
+                    await this.antiSpam.sleep(step.pauseBefore);
 
                 // Enviar cada mensaje
                 for (const message of step.messages) {
@@ -268,17 +283,18 @@ class CampaignService {
                     }
                 }
 
-                // Pausa después del batch
-                await this.antiSpam.sleep(step.pauseAfter);
+                    // Pausa después del batch
+                    await this.antiSpam.sleep(step.pauseAfter);
 
-                // Comportamiento humano aleatorio después de cada batch
-                const deviceForBehavior = devices.find(d => d.id === step.deviceId);
-                if (deviceForBehavior) {
-                    await this.humanBehavior.maybeExecuteBehavior(
-                        deviceForBehavior.session_id, 
-                        deviceForBehavior.id, 
-                        0.6  // 60% probabilidad después de cada batch (aumentado)
-                    );
+                    // Comportamiento humano aleatorio después de cada batch
+                    const deviceForBehavior = devices.find(d => d.id === step.deviceId);
+                    if (deviceForBehavior) {
+                        await this.humanBehavior.maybeExecuteBehavior(
+                            deviceForBehavior.session_id, 
+                            deviceForBehavior.id, 
+                            0.7  // 70% probabilidad después de cada batch
+                        );
+                    }
                 }
             }
 
@@ -407,4 +423,3 @@ class CampaignService {
 }
 
 module.exports = CampaignService;
-

@@ -474,6 +474,11 @@ body:not(.login-page) {
     margin-bottom: 15px;
 }
 
+#chatsList {
+    overflow-y: auto;
+    max-height: calc(100vh - 280px);
+}
+
 .chat-messages {
     background: white;
     border-radius: 8px;
@@ -823,4 +828,3 @@ body:not(.login-page) {
 .chat-input button {
     align-self: flex-end;
 }
-

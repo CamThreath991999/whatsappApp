@@ -145,8 +145,8 @@
                 <div class="chats-container">
                     <div class="chats-list">
                         <div class="chats-header">
-                            <h3>Conversaciones</h3>
-                            <select id="chatDeviceFilter" class="form-control">
+                            <h3>💬 Conversaciones</h3>
+                            <select id="chatDeviceFilter" class="form-control" style="max-width: 200px;">
                                 <option value="">Todos los dispositivos</option>
                             </select>
                         </div>
@@ -157,15 +157,15 @@
 
                     <div class="chat-messages">
                         <div class="chat-messages-header">
-                            <h3 id="activeChatName">Selecciona un chat</h3>
-                            <button id="downloadChatBtn" class="btn btn-sm btn-secondary" style="display: none;">Descargar</button>
+                            <div id="activeChatName">Selecciona un chat</div>
+                            <button id="downloadChatBtn" class="btn btn-sm btn-secondary" style="display: none;">📥 Descargar</button>
                         </div>
                         <div id="messagesContainer" class="messages-container">
                             <p class="empty-state">Selecciona un chat para ver los mensajes</p>
                         </div>
                         <div class="chat-input" style="display: none;">
-                            <textarea id="replyMessage" class="form-control" rows="2" placeholder="Escribe tu respuesta..."></textarea>
-                            <button id="sendReplyBtn" class="btn btn-primary">Enviar</button>
+                            <textarea id="replyMessage" class="form-control" rows="2" placeholder="Escribe tu respuesta... (Shift+Enter para nueva línea)"></textarea>
+                            <button id="sendReplyBtn" class="btn btn-primary">📤 Enviar</button>
                         </div>
                     </div>
                 </div>

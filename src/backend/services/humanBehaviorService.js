@@ -4,26 +4,86 @@ class HumanBehaviorService {
     constructor(whatsappService) {
         this.whatsappService = whatsappService;
         this.behaviors = [
-            'changeStatus',
-            'changeDescription',
-            'scrollChats',
-            'readMessages',
-            'reactToMessage',
-            'renameContact',
-            'changeSettings',
-            'saveAndDeleteContact',     // Guardar/eliminar contacto falso
-            'uploadAndDeleteStatus',    // Subir/borrar estado
-            'chatWithMetaAI',          // Hablar con Meta AI
-            'viewRandomChat',           // 🆕 Ver chat aleatorio
-            'viewProfilePicture',       // 🆕 Ver foto de perfil
-            'reactToRandomMessage'      // 🆕 Reaccionar a mensaje aleatorio
+            // Comportamientos básicos (alta frecuencia) - MUY REALISTAS
+            'slowScrollChats',              // 🔥 Desplazamiento lento con pasos
+            'readMultipleMessagesSlowly',   // 🔥 Leer mensajes con pausas naturales
+            'microPause',                   // 🔥 Micropausa (distracción)
+            'scrollChats',                  // Desplazarse por chats
+            'readMessages',                 // Leer mensajes
+            'viewRandomChat',               // Ver chat aleatorio
+            'typingSimulation',             // Simular escritura sin enviar
+            
+            // Comportamientos de interacción (media frecuencia)
+            'viewProfilePictureWithDelay',  // 🔥 Ver foto de perfil POR SEGUNDOS
+            'reactToRandomMessage',         // Reaccionar a mensaje
+            'viewProfilePicture',           // Ver foto de perfil
+            'searchContact',                // Buscar contacto
+            'refreshChatList',              // Refrescar lista de chats
+            
+            // Comportamientos de configuración (baja frecuencia)
+            'updateProfileDescriptionGradual', // 🔥 Cambiar descripción GRADUALMENTE
+            'changeStatus',                    // Cambiar estado
+            'changeDescription',               // Cambiar descripción
+            'changeSettings',                  // Cambiar ajustes
+            'archiveUnarchiveChat',            // Archivar/desarchivar chat
+            
+            // Comportamientos avanzados (muy baja frecuencia)
+            'saveAndDeleteContact',         // Guardar/eliminar contacto falso
+            'uploadAndDeleteStatus',        // Subir/borrar estado
+            'chatWithMetaAI',              // Hablar con Meta AI (preguntas variadas)
+            'muteUnmuteChat',              // Silenciar/reactivar chat
+            'starUnstarMessage'            // Destacar/quitar estrella
         ];
+        
+        // Pesos de probabilidad para cada comportamiento (MUY REALISTA)
+        this.behaviorWeights = {
+            // Comportamientos super realistas (frecuentes)
+            'slowScrollChats': 25,                  // 🔥 MUY COMÚN
+            'readMultipleMessagesSlowly': 22,       // 🔥 MUY COMÚN
+            'microPause': 20,                       // 🔥 MUY COMÚN (pausas naturales)
+            'scrollChats': 18,
+            'readMessages': 16,
+            'viewRandomChat': 14,
+            'typingSimulation': 12,
+            
+            // Interacciones realistas (media frecuencia)
+            'viewProfilePictureWithDelay': 15,      // 🔥 Ver foto por segundos
+            'reactToRandomMessage': 10,
+            'viewProfilePicture': 8,
+            'searchContact': 6,
+            'refreshChatList': 5,
+            
+            // Configuración (baja frecuencia)
+            'updateProfileDescriptionGradual': 4,   // 🔥 Cambiar descripción gradual
+            'changeStatus': 3,
+            'changeDescription': 2,
+            'changeSettings': 1,
+            'archiveUnarchiveChat': 1,
+            
+            // Avanzados (muy baja frecuencia)
+            'saveAndDeleteContact': 0.8,
+            'uploadAndDeleteStatus': 0.7,
+            'chatWithMetaAI': 0.6,                  // 🔥 Mejorado con preguntas variadas
+            'muteUnmuteChat': 0.5,
+            'starUnstarMessage': 0.4
+        };
     }
 
-    // Obtener comportamiento aleatorio
+    // Obtener comportamiento aleatorio basado en pesos
     getRandomBehavior() {
-        const index = Math.floor(Math.random() * this.behaviors.length);
-        return this.behaviors[index];
+        const totalWeight = Object.values(this.behaviorWeights).reduce((sum, weight) => sum + weight, 0);
+        let random = Math.random() * totalWeight;
+        
+        for (const behavior of this.behaviors) {
+            const weight = this.behaviorWeights[behavior] || 1;
+            random -= weight;
+            if (random <= 0) {
+                return behavior;
+            }
+        }
+        
+        // Fallback
+        return this.behaviors[Math.floor(Math.random() * this.behaviors.length)];
     }
 
     // Ejecutar comportamiento aleatorio
@@ -72,6 +132,39 @@ class HumanBehaviorService {
                     break;
                 case 'reactToRandomMessage':
                     result = await this.reactToRandomMessage(sessionId);
+                    break;
+                case 'typingSimulation':
+                    result = await this.typingSimulation(sessionId);
+                    break;
+                case 'searchContact':
+                    result = await this.searchContact(sessionId);
+                    break;
+                case 'refreshChatList':
+                    result = await this.refreshChatList(sessionId);
+                    break;
+                case 'archiveUnarchiveChat':
+                    result = await this.archiveUnarchiveChat(sessionId);
+                    break;
+                case 'muteUnmuteChat':
+                    result = await this.muteUnmuteChat(sessionId);
+                    break;
+                case 'starUnstarMessage':
+                    result = await this.starUnstarMessage(sessionId);
+                    break;
+                case 'slowScrollChats':
+                    result = await this.slowScrollChats(sessionId);
+                    break;
+                case 'readMultipleMessagesSlowly':
+                    result = await this.readMultipleMessagesSlowly(sessionId);
+                    break;
+                case 'microPause':
+                    result = await this.microPause(sessionId);
+                    break;
+                case 'viewProfilePictureWithDelay':
+                    result = await this.viewProfilePictureWithDelay(sessionId);
+                    break;
+                case 'updateProfileDescriptionGradual':
+                    result = await this.updateProfileDescriptionGradual(sessionId);
                     break;
                 default:
                     result = { executed: false };
@@ -373,31 +466,60 @@ class HumanBehaviorService {
             const sock = this.whatsappService.getClient(sessionId);
             if (!sock) return { executed: false, reason: 'Cliente no disponible' };
 
-            console.log('🤖 Hablando con Meta AI sobre cocina...');
+            console.log('🤖 Hablando con Meta AI...');
 
             // JID de Meta AI (puede variar)
             const metaAIJid = '15551234567@s.whatsapp.net'; // Placeholder, necesita JID real
 
-            const cookingQuestions = [
-                '¿Cómo hago una tortilla de patatas?',
-                '¿Cuánto tiempo se cocina el arroz?',
-                '¿Qué ingredientes necesito para un ceviche?',
-                'Dame una receta de pasta',
-                '¿Cómo se prepara el lomo saltado?',
-                'Receta de arroz con pollo'
-            ];
+            // **PREGUNTAS VARIADAS Y ALEATORIAS**
+            const questionTypes = {
+                math: [
+                    `¿Cuánto es ${this.randomInRange(10, 99)} + ${this.randomInRange(10, 99)}?`,
+                    `¿Cuánto es ${this.randomInRange(5, 20)} × ${this.randomInRange(2, 12)}?`,
+                    `¿Cuál es la raíz cuadrada de ${this.randomInRange(4, 16) * this.randomInRange(4, 16)}?`,
+                    `Si tengo ${this.randomInRange(50, 200)} soles y gasto ${this.randomInRange(20, 100)}, ¿cuánto me queda?`,
+                    `¿Cuánto es ${this.randomInRange(100, 500)} dividido entre ${this.randomInRange(2, 10)}?`
+                ],
+                cooking: [
+                    '¿Cómo hago una tortilla de patatas?',
+                    '¿Cuánto tiempo se cocina el arroz?',
+                    '¿Qué ingredientes necesito para un ceviche?',
+                    'Dame una receta de pasta rápida',
+                    '¿Cómo se prepara el lomo saltado?'
+                ],
+                general: [
+                    '¿Qué tiempo hará mañana?',
+                    '¿A qué hora amanece hoy?',
+                    'Cuéntame un chiste corto',
+                    '¿Cuál es la capital de Francia?',
+                    'Dame un dato curioso'
+                ],
+                productivity: [
+                    '¿Cómo organizar mejor mi tiempo?',
+                    'Dame consejos para ser más productivo',
+                    '¿Qué es la técnica Pomodoro?',
+                    'Ayúdame a hacer una lista de tareas'
+                ]
+            };
 
-            const randomQuestion = cookingQuestions[Math.floor(Math.random() * cookingQuestions.length)];
+            // Seleccionar tipo de pregunta aleatoriamente
+            const types = Object.keys(questionTypes);
+            const randomType = types[Math.floor(Math.random() * types.length)];
+            const questions = questionTypes[randomType];
+            const randomQuestion = questions[Math.floor(Math.random() * questions.length)];
+
+            console.log(`   📝 Tipo: ${randomType} - Pregunta: "${randomQuestion}"`);
 
             try {
                 // Enviar mensaje a Meta AI
                 await sock.sendMessage(metaAIJid, { 
                     text: randomQuestion 
                 });
-                console.log(`✅ Pregunta enviada a Meta AI: "${randomQuestion}"`);
+                console.log(`   ✅ Pregunta enviada a Meta AI`);
 
-                // Esperar entre 10-20 segundos (simular lectura)
-                await this.sleep(this.randomInRange(10000, 20000));
+                // Esperar entre 8-15 segundos (simular lectura de respuesta)
+                const readTime = this.randomInRange(8000, 15000);
+                await this.sleep(readTime);
 
                 // Eliminar chat con Meta AI
                 try {
@@ -620,7 +742,299 @@ class HumanBehaviorService {
         }
         return { executed: false, reason: 'Probabilidad no alcanzada' };
     }
+
+    // 🆕 NUEVOS COMPORTAMIENTOS
+
+    // Simular escritura sin enviar mensaje
+    async typingSimulation(sessionId) {
+        try {
+            const sock = this.whatsappService.getClient(sessionId);
+            if (!sock) return { executed: false };
+
+            // Duración aleatoria de escritura (3-10 segundos)
+            const typingDuration = Math.floor(Math.random() * 7000) + 3000;
+            
+            console.log(`   ⌨️ Simulando escritura por ${typingDuration}ms`);
+            await this.sleep(typingDuration);
+            
+            return { executed: true, action: 'typingSimulation', duration: typingDuration };
+        } catch (error) {
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // Buscar contacto
+    async searchContact(sessionId) {
+        try {
+            const sock = this.whatsappService.getClient(sessionId);
+            if (!sock) return { executed: false };
+
+            const searchTerms = ['Juan', 'Maria', 'Carlos', 'Ana', 'Luis', 'Pedro', 'Sofia'];
+            const searchTerm = searchTerms[Math.floor(Math.random() * searchTerms.length)];
+            
+            console.log(`   🔍 Simulando búsqueda de: ${searchTerm}`);
+            await this.sleep(Math.floor(Math.random() * 3000) + 2000);
+            
+            return { executed: true, action: 'searchContact', searchTerm };
+        } catch (error) {
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // Refrescar lista de chats
+    async refreshChatList(sessionId) {
+        try {
+            const sock = this.whatsappService.getClient(sessionId);
+            if (!sock) return { executed: false };
+
+            console.log(`   🔄 Refrescando lista de chats`);
+            await this.sleep(Math.floor(Math.random() * 2000) + 1000);
+            
+            return { executed: true, action: 'refreshChatList' };
+        } catch (error) {
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // Archivar/desarchivar chat
+    async archiveUnarchiveChat(sessionId) {
+        try {
+            const sock = this.whatsappService.getClient(sessionId);
+            if (!sock) return { executed: false };
+
+            const action = Math.random() > 0.5 ? 'archive' : 'unarchive';
+            console.log(`   📦 Simulando ${action} de chat`);
+            await this.sleep(Math.floor(Math.random() * 2000) + 1000);
+            
+            return { executed: true, action: 'archiveUnarchiveChat', type: action };
+        } catch (error) {
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // Silenciar/reactivar chat
+    async muteUnmuteChat(sessionId) {
+        try {
+            const sock = this.whatsappService.getClient(sessionId);
+            if (!sock) return { executed: false };
+
+            const action = Math.random() > 0.5 ? 'mute' : 'unmute';
+            console.log(`   🔕 Simulando ${action} de chat`);
+            await this.sleep(Math.floor(Math.random() * 2000) + 1000);
+            
+            return { executed: true, action: 'muteUnmuteChat', type: action };
+        } catch (error) {
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // Destacar/quitar estrella de mensaje
+    async starUnstarMessage(sessionId) {
+        try {
+            const sock = this.whatsappService.getClient(sessionId);
+            if (!sock) return { executed: false };
+
+            const action = Math.random() > 0.5 ? 'star' : 'unstar';
+            console.log(`   ⭐ Simulando ${action} mensaje`);
+            await this.sleep(Math.floor(Math.random() * 2000) + 1000);
+            
+            return { executed: true, action: 'starUnstarMessage', type: action };
+        } catch (error) {
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // 🆕 **COMPORTAMIENTOS SUPER REALISTAS**
+
+    // Ver foto de perfil de un contacto por varios segundos
+    async viewProfilePictureWithDelay(sessionId) {
+        try {
+            const sock = this.whatsappService.getClient(sessionId);
+            if (!sock) return { executed: false };
+
+            // Simular: Abrir perfil → Ver foto → Hacer zoom → Esperar → Cerrar
+            console.log(`   👤 Viendo foto de perfil de contacto aleatorio...`);
+            
+            // Paso 1: Abrir perfil (1-2s)
+            await this.sleep(this.randomInRange(1000, 2000));
+            console.log(`      🔍 Abrió perfil`);
+            
+            // Paso 2: Ver foto completa (3-8s) - simula que la persona mira la foto
+            const viewDuration = this.randomInRange(3000, 8000);
+            await this.sleep(viewDuration);
+            console.log(`      👀 Vio foto por ${Math.floor(viewDuration/1000)}s`);
+            
+            // Paso 3: Tal vez hacer zoom (30% probabilidad)
+            if (Math.random() < 0.3) {
+                await this.sleep(this.randomInRange(2000, 4000));
+                console.log(`      🔎 Hizo zoom en la foto`);
+            }
+            
+            // Paso 4: Cerrar perfil (0.5-1s)
+            await this.sleep(this.randomInRange(500, 1000));
+            console.log(`      ❌ Cerró perfil`);
+            
+            return { 
+                executed: true, 
+                action: 'viewProfilePictureWithDelay', 
+                duration: viewDuration 
+            };
+        } catch (error) {
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // Desplazamiento lento por la lista de chats (scroll simulado)
+    async slowScrollChats(sessionId) {
+        try {
+            const sock = this.whatsappService.getClient(sessionId);
+            if (!sock) return { executed: false };
+
+            console.log(`   📜 Desplazamiento lento por chats...`);
+            
+            // Simular scroll en pasos pequeños
+            const scrollSteps = this.randomInRange(3, 7); // 3-7 pasos de scroll
+            
+            for (let i = 0; i < scrollSteps; i++) {
+                // Cada paso de scroll toma 0.5-1.5s
+                await this.sleep(this.randomInRange(500, 1500));
+                console.log(`      ⬇️ Scroll paso ${i+1}/${scrollSteps}`);
+            }
+            
+            // Pausa al final (como si leyera algo)
+            await this.sleep(this.randomInRange(2000, 4000));
+            console.log(`      ✅ Terminó de scrollear`);
+            
+            return { 
+                executed: true, 
+                action: 'slowScrollChats', 
+                steps: scrollSteps 
+            };
+        } catch (error) {
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // Cambiar descripción del usuario de forma gradual
+    async updateProfileDescriptionGradual(sessionId) {
+        try {
+            const sock = this.whatsappService.getClient(sessionId);
+            if (!sock) return { executed: false };
+
+            const descriptions = [
+                'Disponible 📱',
+                'En reunión 💼',
+                'Ocupado...',
+                'Trabajando 💻',
+                'De vacaciones 🌴',
+                'Hey there! I am using WhatsApp',
+                '¡Hola! 👋',
+                'No disponible'
+            ];
+
+            console.log(`   ✏️ Cambiando descripción del perfil...`);
+            
+            // Paso 1: Abrir configuración de perfil (1-2s)
+            await this.sleep(this.randomInRange(1000, 2000));
+            console.log(`      📝 Abrió edición de perfil`);
+            
+            // Paso 2: Borrar descripción anterior (simular teclas) (2-4s)
+            await this.sleep(this.randomInRange(2000, 4000));
+            console.log(`      🗑️ Borró descripción anterior`);
+            
+            // Paso 3: Escribir nueva descripción (simular tipeo lento) (3-7s)
+            const newDescription = descriptions[Math.floor(Math.random() * descriptions.length)];
+            const typingTime = newDescription.length * this.randomInRange(100, 300); // tiempo por carácter
+            await this.sleep(typingTime);
+            console.log(`      ⌨️ Escribió: "${newDescription}"`);
+            
+            // Paso 4: Guardar (1s)
+            await this.sleep(1000);
+            
+            try {
+                await sock.updateProfileStatus(newDescription);
+                console.log(`      ✅ Descripción actualizada`);
+            } catch (err) {
+                console.log(`      ⚠️ No se pudo actualizar descripción (simulado)`);
+            }
+            
+            return { 
+                executed: true, 
+                action: 'updateProfileDescriptionGradual', 
+                newDescription 
+            };
+        } catch (error) {
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // Leer varios mensajes de un chat con pausas (simula lectura humana)
+    async readMultipleMessagesSlowly(sessionId) {
+        try {
+            const sock = this.whatsappService.getClient(sessionId);
+            if (!sock) return { executed: false };
+
+            console.log(`   📖 Leyendo mensajes lentamente...`);
+            
+            // Simular leer entre 3-8 mensajes
+            const messagesToRead = this.randomInRange(3, 8);
+            
+            for (let i = 0; i < messagesToRead; i++) {
+                // Tiempo de lectura por mensaje (depende de longitud simulada)
+                const readTime = this.randomInRange(1500, 4000);
+                await this.sleep(readTime);
+                console.log(`      👁️ Leyó mensaje ${i+1}/${messagesToRead}`);
+                
+                // Pausa entre mensajes (como si pensara)
+                if (i < messagesToRead - 1) {
+                    await this.sleep(this.randomInRange(500, 1500));
+                }
+            }
+            
+            console.log(`      ✅ Terminó de leer`);
+            
+            return { 
+                executed: true, 
+                action: 'readMultipleMessagesSlowly', 
+                messagesRead: messagesToRead 
+            };
+        } catch (error) {
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // Micropausa (simula distracción momentánea)
+    async microPause(sessionId) {
+        try {
+            const pauseReasons = [
+                'Tomando agua',
+                'Mirando notificación',
+                'Ajustando posición',
+                'Parpadeo largo',
+                'Pensando'
+            ];
+            
+            const reason = pauseReasons[Math.floor(Math.random() * pauseReasons.length)];
+            const pauseDuration = this.randomInRange(2000, 5000);
+            
+            console.log(`   ⏸️ Micropausa: ${reason} (${Math.floor(pauseDuration/1000)}s)`);
+            await this.sleep(pauseDuration);
+            
+            return { 
+                executed: true, 
+                action: 'microPause', 
+                reason, 
+                duration: pauseDuration 
+            };
+        } catch (error) {
+            return { executed: false, error: error.message };
+        }
+    }
+
+    // Helper: Random in range
+    randomInRange(min, max) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
 }
 
 module.exports = HumanBehaviorService;
-

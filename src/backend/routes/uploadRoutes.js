@@ -61,21 +61,28 @@ router.post('/contacts-excel', verifyToken, upload.single('file'), async (req, r
         console.log(`   Archivo: ${req.file.filename}`);
         console.log(`   Campaña: ${campaignId}, Categoría: ${categoryId || 'N/A'}`);
 
-        // Obtener dispositivos conectados del usuario
+        // Obtener TODOS los dispositivos conectados del usuario
         const [devices] = await pool.execute(
-            'SELECT id FROM dispositivos WHERE usuario_id = ? AND estado = ? ORDER BY id LIMIT 1',
+            'SELECT id, nombre_dispositivo, session_id FROM dispositivos WHERE usuario_id = ? AND estado = ? ORDER BY id',
             [req.user.id, 'conectado']
         );
 
         if (devices.length === 0) {
             fs.unlinkSync(req.file.path);
             return res.status(400).json({ 
-                error: 'No hay dispositivos conectados. Conecta un dispositivo primero.' 
+                error: 'No hay dispositivos conectados. Conecta al menos un dispositivo primero.' 
             });
         }
 
-        const deviceId = devices[0].id;
-        console.log(`   📱 Usando dispositivo ID: ${deviceId}`);
+        console.log(`   📱 Dispositivos conectados: ${devices.length}`);
+        devices.forEach(d => console.log(`      - ID ${d.id}: ${d.nombre_dispositivo} (${d.session_id})`));
+        
+        // **ESTRATEGIA DE ROTACIÓN DINÁMICA**
+        const useRotation = devices.length > 1;
+        console.log(`   🔄 Estrategia: ${useRotation ? 'ROTACIÓN ACTIVA' : 'DISPOSITIVO ÚNICO'}`);
+        
+        let deviceRotationIndex = 0;
+        const singleDeviceId = devices[0].id; // Para cuando solo hay 1 dispositivo
 
         // Leer archivo Excel
         const workbook = XLSX.readFile(req.file.path);
@@ -178,7 +185,24 @@ router.post('/contacts-excel', verifyToken, upload.single('file'), async (req, r
                     }
                 }
 
-                // Agregar mensaje a la campaña con dispositivo asignado
+                // **ROTACIÓN DINÁMICA DE DISPOSITIVOS**
+                let deviceId;
+                if (useRotation) {
+                    // MÚLTIPLES DISPOSITIVOS: Rotación aleatoria o secuencial
+                    if (Math.random() < 0.7) {
+                        // 70% rotación secuencial (más predecible, menos sospechoso)
+                        deviceId = devices[deviceRotationIndex].id;
+                        deviceRotationIndex = (deviceRotationIndex + 1) % devices.length;
+                    } else {
+                        // 30% selección aleatoria (más impredecible)
+                        deviceId = devices[Math.floor(Math.random() * devices.length)].id;
+                    }
+                } else {
+                    // UN SOLO DISPOSITIVO: Usar siempre el mismo
+                    deviceId = singleDeviceId;
+                }
+                
+                // Agregar mensaje a la campaña con dispositivo rotado
                 await pool.execute(
                     `INSERT INTO mensajes (campana_id, contacto_id, dispositivo_id, mensaje, estado) 
                      VALUES (?, ?, ?, ?, 'pendiente')`,
@@ -186,6 +210,10 @@ router.post('/contacts-excel', verifyToken, upload.single('file'), async (req, r
                 );
 
                 added++;
+                
+                if (added % 10 === 0) {
+                    console.log(`   📊 Procesados: ${added} mensajes...`);
+                }
 
             } catch (error) {
                 console.error(`   ❌ Error procesando fila:`, error.message);
@@ -199,14 +227,31 @@ router.post('/contacts-excel', verifyToken, upload.single('file'), async (req, r
             [added, campaignId]
         );
 
+        // Obtener distribución de mensajes por dispositivo
+        const [distribution] = await pool.execute(
+            `SELECT d.id, d.nombre_dispositivo, COUNT(*) as total 
+             FROM mensajes m 
+             JOIN dispositivos d ON m.dispositivo_id = d.id 
+             WHERE m.campana_id = ? 
+             GROUP BY d.id`,
+            [campaignId]
+        );
+
         // Eliminar archivo después de procesar
         fs.unlinkSync(req.file.path);
 
         console.log(`   ✅ Procesamiento completo: ${added} contactos agregados, ${errors} errores`);
+        console.log(`   🔄 DISTRIBUCIÓN DE MENSAJES POR DISPOSITIVO:`);
+        distribution.forEach(d => {
+            console.log(`      📱 Dispositivo ${d.id} (${d.nombre_dispositivo}): ${d.total} mensajes`);
+        });
         console.log(`   📋 Resumen de contactos procesados:`);
-        processLog.forEach((log, idx) => {
+        processLog.slice(0, 5).forEach((log, idx) => {
             console.log(`      ${idx + 1}. ${log.nombre} (${log.telefono}) - ${log.mensaje}`);
         });
+        if (processLog.length > 5) {
+            console.log(`      ... y ${processLog.length - 5} más`);
+        }
         console.log('');
 
         res.json({
