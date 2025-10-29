@@ -240,6 +240,49 @@ class WhatsAppService {
         }
     }
 
+    // Enviar mensaje con imagen
+    async sendMessageWithImage(sessionId, phoneNumber, message, imagePath) {
+        try {
+            const client = this.getClient(sessionId);
+            
+            if (!client) {
+                throw new Error('Cliente no encontrado o no conectado');
+            }
+
+            // Formatear número
+            const chatId = this.formatPhoneNumber(phoneNumber);
+            
+            // Verificar si la ruta es absoluta o relativa
+            let fullImagePath = imagePath;
+            if (!path.isAbsolute(imagePath)) {
+                // Si es relativa, asumimos que está en la carpeta uploads del proyecto
+                fullImagePath = path.join(__dirname, '../../../uploads', imagePath);
+            }
+
+            // Verificar que el archivo exista
+            if (!fs.existsSync(fullImagePath)) {
+                console.error(`❌ Imagen no encontrada: ${fullImagePath}`);
+                throw new Error(`Imagen no encontrada: ${fullImagePath}`);
+            }
+
+            // Importar MessageMedia de whatsapp-web.js
+            const { MessageMedia } = require('whatsapp-web.js');
+
+            // Crear objeto de media desde archivo
+            const media = MessageMedia.fromFilePath(fullImagePath);
+            
+            // Enviar mensaje con imagen
+            await client.sendMessage(chatId, media, { caption: message });
+            
+            console.log(`✅ Imagen enviada: ${fullImagePath}`);
+            return { success: true };
+
+        } catch (error) {
+            console.error(`Error enviando mensaje con imagen:`, error);
+            throw error;
+        }
+    }
+
     // Formatear número de teléfono
     formatPhoneNumber(phone) {
         // Remover caracteres no numéricos

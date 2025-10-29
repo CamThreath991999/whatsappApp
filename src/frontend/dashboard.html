@@ -81,10 +81,11 @@
             <!-- View: Contacts -->
             <div id="contactsView" class="view">
                 <div class="filters-bar">
-                    <select id="contactCategoryFilter" class="form-control">
+                    <input type="text" id="contactSearchInput" class="form-control" placeholder="🔍 Buscar por nombre o teléfono..." style="max-width: 300px;">
+                    <select id="contactCategoryFilter" class="form-control" style="max-width: 200px;">
                         <option value="">Todas las categorías</option>
                     </select>
-                    <button id="importContactsBtn" class="btn btn-secondary">Importar Excel</button>
+                    <button id="importContactsBtn" class="btn btn-secondary">📤 Importar Excel</button>
                 </div>
                 <div class="table-container">
                     <table id="contactsTable" class="data-table">
@@ -109,6 +110,34 @@
             <div id="campaignsView" class="view">
                 <div class="campaigns-list" id="campaignsList">
                     <!-- Campañas se cargarán aquí -->
+                </div>
+                
+                <!-- Tabla de errores de campaña (se muestra cuando se selecciona una campaña) -->
+                <div id="campaignErrorsSection" class="campaign-errors-section" style="display: none;">
+                    <div class="section-header">
+                        <h3>❌ Mensajes Fallidos</h3>
+                        <button id="closeErrorsBtn" class="btn btn-sm btn-secondary">Cerrar</button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Dispositivo</th>
+                                    <th>Contacto</th>
+                                    <th>Mensaje</th>
+                                    <th>Observación</th>
+                                    <th>Fecha</th>
+                                </tr>
+                            </thead>
+                            <tbody id="campaignErrorsTableBody">
+                                <!-- Errores se cargarán aquí -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="noErrorsMessage" class="empty-state" style="display: none;">
+                        ✅ No hay mensajes fallidos en esta campaña
+                    </div>
                 </div>
             </div>
 
@@ -146,9 +175,18 @@
                     <div class="chats-list">
                         <div class="chats-header">
                             <h3>💬 Conversaciones</h3>
-                            <select id="chatDeviceFilter" class="form-control" style="max-width: 200px;">
-                                <option value="">Todos los dispositivos</option>
-                            </select>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <label class="filter-checkbox" style="margin: 0; white-space: nowrap;">
+                                    <input type="checkbox" id="campaignOnlyFilter" onchange="toggleCampaignFilter()" style="margin-right: 5px;">
+                                    <span>📢 Solo campañas</span>
+                                </label>
+                                <select id="chatDeviceFilter" class="form-control" style="max-width: 200px;">
+                                    <option value="">Todos los dispositivos</option>
+                                </select>
+                                <button id="downloadAllChatsBtn" class="btn btn-sm btn-secondary" title="Descargar todos los chats">
+                                    📥 Descargar Todos
+                                </button>
+                            </div>
                         </div>
                         <div id="chatsList">
                             <!-- Lista de chats -->

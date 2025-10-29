@@ -456,3 +456,4 @@ Para iniciar:
 5. `npm start`
 6. Abrir `http://localhost:3000`
 
+Hash correcto: $2a$10$6GS3ZwheAhA6B5.c6MEFOO.o.ghZrKFrcmcuQPJr9YDOah38xspQG

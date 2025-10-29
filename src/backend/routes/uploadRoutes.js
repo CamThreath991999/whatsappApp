@@ -113,6 +113,8 @@ router.post('/contacts-excel', verifyToken, upload.single('file'), async (req, r
                 const nombre = row.nombre || row.Nombre || row.NOMBRE || row.name || '';
                 const mensaje = row.mensaje || row.Mensaje || row.MENSAJE || row.message || '';
                 const categoria = row.categoria || row.Categoria || row.CATEGORIA || row.category || categoryId;
+                const file = row.file || row.File || row.FILE || 0;
+                const ruta = row.ruta || row.Ruta || row.RUTA || row.path || '';
 
                 processLog.push({
                     telefono,
@@ -203,10 +205,15 @@ router.post('/contacts-excel', verifyToken, upload.single('file'), async (req, r
                 }
                 
                 // Agregar mensaje a la campaña con dispositivo rotado
+                // Guardar la información de archivo como metadata JSON
+                const metadata = file && parseInt(file) === 1 && ruta ? 
+                    JSON.stringify({ hasFile: true, filePath: ruta }) : 
+                    null;
+                
                 await pool.execute(
-                    `INSERT INTO mensajes (campana_id, contacto_id, dispositivo_id, mensaje, estado) 
-                     VALUES (?, ?, ?, ?, 'pendiente')`,
-                    [campaignId, contactoId, deviceId, mensaje || req.body.defaultMessage || 'Mensaje predeterminado']
+                    `INSERT INTO mensajes (campana_id, contacto_id, dispositivo_id, mensaje, metadata, estado) 
+                     VALUES (?, ?, ?, ?, ?, 'pendiente')`,
+                    [campaignId, contactoId, deviceId, mensaje || req.body.defaultMessage || 'Mensaje predeterminado', metadata]
                 );
 
                 added++;

@@ -663,6 +663,46 @@ body:not(.login-page) {
     transition: width 0.3s;
 }
 
+/* Campaign Errors Section */
+.campaign-errors-section {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.campaign-errors-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.campaign-errors-section .section-header h3 {
+    margin: 0;
+    color: var(--danger-color);
+}
+
+.error-badge {
+    background-color: #fff3cd;
+    color: #856404;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    display: inline-block;
+}
+
+.campaign-errors-section .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-light);
+    font-size: 16px;
+}
+
 /* Text utilities */
 .text-center {
     text-align: center;

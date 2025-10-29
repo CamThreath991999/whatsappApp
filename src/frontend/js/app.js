@@ -691,18 +691,28 @@ async function deleteCategory(id) {
 }
 
 // CONTACTS FUNCTIONS
+let allContacts = []; // Cache de todos los contactos
+
 async function loadContacts() {
     try {
         const data = await apiRequest('/contacts');
+        allContacts = data.contacts; // Guardar en cache
+        renderContacts(allContacts);
+    } catch (error) {
+        showAlert('Error al cargar contactos: ' + error.message, 'error');
+    }
+}
+
+function renderContacts(contacts) {
         const tbody = document.getElementById('contactsTableBody');
         tbody.innerHTML = '';
 
-        if (data.contacts.length === 0) {
+    if (contacts.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="text-center">No hay contactos</td></tr>';
             return;
         }
 
-        data.contacts.forEach(contact => {
+    contacts.forEach(contact => {
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td>${contact.nombre || '-'}</td>
@@ -716,9 +726,31 @@ async function loadContacts() {
             `;
             tbody.appendChild(row);
         });
-    } catch (error) {
-        showAlert('Error al cargar contactos: ' + error.message, 'error');
+}
+
+function filterContacts() {
+    const searchText = document.getElementById('contactSearchInput').value.toLowerCase();
+    const categoryFilter = document.getElementById('contactCategoryFilter').value;
+
+    let filtered = allContacts;
+
+    // Filtrar por búsqueda de texto
+    if (searchText) {
+        filtered = filtered.filter(contact => {
+            const nombre = (contact.nombre || '').toLowerCase();
+            const telefono = (contact.telefono || '').toLowerCase();
+            return nombre.includes(searchText) || telefono.includes(searchText);
+        });
     }
+
+    // Filtrar por categoría
+    if (categoryFilter) {
+        filtered = filtered.filter(contact => {
+            return contact.categoria_id && contact.categoria_id.toString() === categoryFilter;
+        });
+    }
+
+    renderContacts(filtered);
 }
 
 async function loadCategoriesForFilter() {
@@ -733,6 +765,14 @@ async function loadCategoriesForFilter() {
             option.textContent = cat.nombre;
             select.appendChild(option);
         });
+
+        // Agregar event listeners para filtrado
+        select.addEventListener('change', filterContacts);
+        
+        const searchInput = document.getElementById('contactSearchInput');
+        if (searchInput) {
+            searchInput.addEventListener('input', filterContacts);
+        }
     } catch (error) {
         console.error('Error cargando categorías:', error);
     }
@@ -863,6 +903,8 @@ function createCampaignCard(campaign) {
                 `<button class="btn btn-success btn-sm" onclick="startCampaign(${campaign.id})">Iniciar</button>` : ''}
             ${campaign.estado === 'en_proceso' ?
                 `<button class="btn btn-warning btn-sm" onclick="pauseCampaign(${campaign.id})">Pausar</button>` : ''}
+            ${campaign.mensajes_fallidos > 0 ?
+                `<button class="btn btn-secondary btn-sm" onclick="viewCampaignErrors(${campaign.id})">❌ Ver Errores (${campaign.mensajes_fallidos})</button>` : ''}
             <button class="btn btn-danger btn-sm" onclick="cancelCampaign(${campaign.id})">Cancelar</button>
         </div>
     `;
@@ -1037,6 +1079,65 @@ async function cancelCampaign(id) {
     }
 }
 
+// Ver errores de campaña
+async function viewCampaignErrors(campaignId) {
+    try {
+        const data = await apiRequest(`/campaigns/${campaignId}/errors`);
+        
+        const errorsSection = document.getElementById('campaignErrorsSection');
+        const tableBody = document.getElementById('campaignErrorsTableBody');
+        const noErrorsMessage = document.getElementById('noErrorsMessage');
+        
+        tableBody.innerHTML = '';
+        
+        if (data.errors.length === 0) {
+            noErrorsMessage.style.display = 'block';
+            tableBody.closest('.table-container').style.display = 'none';
+        } else {
+            noErrorsMessage.style.display = 'none';
+            tableBody.closest('.table-container').style.display = 'block';
+            
+            data.errors.forEach((error, index) => {
+                const row = document.createElement('tr');
+                const fechaFormateada = error.fecha_envio ? 
+                    new Date(error.fecha_envio).toLocaleString('es-ES') : 
+                    'N/A';
+                const mensajeCorto = error.mensaje.length > 30 ? 
+                    error.mensaje.substring(0, 30) + '...' : 
+                    error.mensaje;
+                
+                row.innerHTML = `
+                    <td>${String(index + 1).padStart(2, '0')}</td>
+                    <td>${error.nombre_dispositivo || 'Dispositivo ' + error.dispositivo_id}</td>
+                    <td>${error.nombre || error.telefono}</td>
+                    <td title="${error.mensaje}">${mensajeCorto}</td>
+                    <td><span class="error-badge">${error.observacion || 'Error desconocido'}</span></td>
+                    <td>${fechaFormateada}</td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+        
+        errorsSection.style.display = 'block';
+        
+        // Scroll suave a la sección de errores
+        errorsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        
+    } catch (error) {
+        showAlert('Error al cargar errores: ' + error.message, 'error');
+    }
+}
+
+// Cerrar sección de errores
+document.addEventListener('DOMContentLoaded', () => {
+    const closeErrorsBtn = document.getElementById('closeErrorsBtn');
+    if (closeErrorsBtn) {
+        closeErrorsBtn.onclick = () => {
+            document.getElementById('campaignErrorsSection').style.display = 'none';
+        };
+    }
+});
+
 // MANUAL SEND
 async function loadDevicesForManual() {
     try {
@@ -1099,19 +1200,36 @@ async function loadChats() {
         // Cargar dispositivos para el filtro
         await loadDevicesForChatFilter();
         
-        // Cargar chats con filtro si existe
-        const endpoint = currentDeviceFilter ? `/chats?dispositivo_id=${currentDeviceFilter}` : '/chats';
+        // Construir endpoint con filtros
+        let endpoint = '/chats';
+        const params = [];
+        
+        if (currentDeviceFilter) {
+            params.push(`dispositivo_id=${currentDeviceFilter}`);
+        }
+        
+        // Verificar si el filtro de campaña está activo
+        const campaignOnlyCheckbox = document.getElementById('campaignOnlyFilter');
+        if (campaignOnlyCheckbox && campaignOnlyCheckbox.checked) {
+            params.push('campaign_only=true');
+        }
+        
+        if (params.length > 0) {
+            endpoint += '?' + params.join('&');
+        }
+        
         const response = await apiRequest(endpoint);
-        const { chats, totalDevices } = response;
+        const { chats, totalDevices, campaignFilter } = response;
 
         allChatsData = chats || [];
         const chatsList = document.getElementById('chatsList');
 
         if (!chats || chats.length === 0) {
+            const filterMsg = campaignFilter ? '<p>No hay chats de contactos en campañas</p>' : '<p>📭 No hay chats disponibles</p>';
             chatsList.innerHTML = `
                 <div class="empty-state">
-                    <p>📭 No hay chats disponibles</p>
-                    ${totalDevices === 0 ? '<p>Conecta un dispositivo primero</p>' : ''}
+                    ${filterMsg}
+                    ${totalDevices === 0 && !campaignFilter ? '<p>Conecta un dispositivo primero</p>' : ''}
                 </div>
             `;
             return;
@@ -1158,6 +1276,11 @@ async function loadChats() {
             </div>
         `;
     }
+}
+
+// Toggle del filtro de campañas
+function toggleCampaignFilter() {
+    loadChats();
 }
 
 // Cargar dispositivos para el filtro
@@ -1370,46 +1493,73 @@ async function sendReply(sessionId, chatId) {
 // Descargar chat
 async function downloadChat(sessionId, chatId, phoneNumber) {
     try {
-        showAlert('⏳ Preparando descarga...', 'info');
+        showAlert('⏳ Descargando chat...', 'info');
         
-        const response = await apiRequest(`/chats/${sessionId}/${encodeURIComponent(chatId)}/messages`);
-        const { messages } = response;
+        // Llamar a la nueva ruta del backend que guarda en /chats/{numero}/{fecha}.txt
+        const response = await apiRequest(`/chats/${sessionId}/${encodeURIComponent(chatId)}/download`);
         
-        if (!messages || messages.length === 0) {
-            showAlert('No hay mensajes para descargar', 'warning');
-            return;
+        if (response.success) {
+            showAlert(`✅ Chat descargado en /chats/${response.folder}/`, 'success');
+        } else {
+            showAlert('❌ Error al descargar chat', 'error');
         }
-        
-        // Crear contenido del archivo
-        let content = `Chat con: ${phoneNumber}\n`;
-        content += `Fecha de descarga: ${new Date().toLocaleString('es-PE')}\n`;
-        content += `Total de mensajes: ${messages.length}\n`;
-        content += `${'='.repeat(60)}\n\n`;
-        
-        messages.forEach(msg => {
-            const date = new Date(msg.timestamp * 1000).toLocaleString('es-PE');
-            const sender = msg.fromMe ? 'Yo' : phoneNumber;
-            content += `[${date}] ${sender}:\n${msg.text}\n\n`;
-        });
-        
-        // Descargar archivo
-        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `chat_${phoneNumber}_${new Date().toISOString().split('T')[0]}.txt`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-        
-        showAlert('✅ Chat descargado', 'success');
         
     } catch (error) {
         console.error('Error descargando chat:', error);
-        showAlert('❌ Error al descargar chat', 'error');
+        showAlert('❌ Error al descargar chat: ' + error.message, 'error');
     }
 }
+
+// Descargar todos los chats del dispositivo actual
+async function downloadAllChats() {
+    try {
+        if (!currentDeviceFilter) {
+            showAlert('⚠️ Selecciona un dispositivo primero', 'warning');
+            return;
+        }
+        
+        if (!confirm('¿Descargar todos los chats de este dispositivo? Esto puede tomar un tiempo.')) {
+            return;
+        }
+        
+        showAlert('⏳ Descargando todos los chats...', 'info');
+        
+        // Obtener el session_id del dispositivo seleccionado
+        const devicesData = await apiRequest('/devices');
+        const device = devicesData.devices.find(d => d.id == currentDeviceFilter);
+        
+        if (!device || !device.session_id) {
+            showAlert('❌ Dispositivo no encontrado o sin sesión activa', 'error');
+            return;
+        }
+        
+        // Llamar a la ruta de descarga masiva
+        const response = await apiRequest('/chats/download-all', {
+            method: 'POST',
+            body: JSON.stringify({
+                sessionId: device.session_id
+            })
+        });
+        
+        if (response.success) {
+            showAlert(`✅ ${response.downloadedChats.length} chats descargados en /chats/`, 'success');
+        } else {
+            showAlert('❌ Error al descargar chats', 'error');
+        }
+        
+    } catch (error) {
+        console.error('Error descargando chats:', error);
+        showAlert('❌ Error al descargar chats: ' + error.message, 'error');
+    }
+}
+
+// Agregar event listener para el botón de descargar todos
+document.addEventListener('DOMContentLoaded', () => {
+    const downloadAllBtn = document.getElementById('downloadAllChatsBtn');
+    if (downloadAllBtn) {
+        downloadAllBtn.onclick = downloadAllChats;
+    }
+});
 
 // UTILITIES
 function showAlert(message, type = 'info') {
@@ -1448,3 +1598,4 @@ async function loadScheduledCampaigns() {
     const container = document.getElementById('scheduledCampaigns');
     container.innerHTML = '<p class="empty-state">No hay campañas agendadas</p>';
 }
+

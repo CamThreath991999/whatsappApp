@@ -85,9 +85,9 @@ class CampaignService {
 
             const campaign = campaigns[0];
 
-            // Obtener mensajes pendientes
+            // Obtener mensajes pendientes (incluir metadata para imágenes)
             const [messages] = await pool.execute(
-                `SELECT m.*, c.telefono, d.session_id 
+                `SELECT m.*, c.telefono, c.nombre, d.session_id 
                  FROM mensajes m
                  JOIN contactos c ON m.contacto_id = c.id
                  JOIN dispositivos d ON m.dispositivo_id = d.id
@@ -160,6 +160,11 @@ class CampaignService {
             if (!campaignData) return;
 
             const { plan, devices } = campaignData;
+            
+            // Tracking de fallos por dispositivo
+            const deviceFailures = new Map();
+            devices.forEach(d => deviceFailures.set(d.id, 0));
+            const FAILURE_THRESHOLD = 3; // Máximo 3 fallos antes de redistribuir
 
             console.log(`🚀 Iniciando ejecución de campaña ${campaignId} con ${plan.length} pasos`);
 
@@ -205,12 +210,22 @@ class CampaignService {
                 if (step.type === 'human_behavior') {
                     const device = devices.find(d => d.id === step.deviceId);
                     if (device && device.session_id) {
-                        console.log(`🤖 Ejecutando comportamiento humano en dispositivo ${step.deviceId}`);
-                        await this.humanBehavior.maybeExecuteBehavior(
-                            device.session_id, 
-                            device.id, 
-                            step.probability || 0.8
-                        );
+                        const repeatCount = step.repeatCount || 1;
+                        const reason = step.reason || 'periodic';
+                        console.log(`🤖 Ejecutando ${repeatCount} comportamiento(s) humano(s) en dispositivo ${step.deviceId} (${reason})`);
+                        
+                        for (let r = 0; r < repeatCount; r++) {
+                            await this.humanBehavior.maybeExecuteBehavior(
+                                device.session_id, 
+                                device.id, 
+                                step.probability || 0.8
+                            );
+                            
+                            // Pausa entre comportamientos (si hay más de uno)
+                            if (r < repeatCount - 1) {
+                                await this.antiSpam.sleep(this.antiSpam.randomInRange(3000, 8000));
+                            }
+                        }
                     }
                     continue;
                 }
@@ -232,12 +247,30 @@ class CampaignService {
                             throw new Error('Cliente no disponible');
                         }
 
-                        // Enviar mensaje
-                        await this.whatsappService.sendMessage(
-                            sessionId,
-                            message.telefono,
-                            message.mensaje
-                        );
+                        // Verificar si hay archivo adjunto
+                        let metadata = null;
+                        try {
+                            metadata = message.metadata ? JSON.parse(message.metadata) : null;
+                        } catch (e) {
+                            console.log('Error parseando metadata:', e);
+                        }
+
+                        // Enviar mensaje (con o sin imagen)
+                        if (metadata && metadata.hasFile && metadata.filePath) {
+                            console.log(`📎 Enviando mensaje con imagen: ${metadata.filePath}`);
+                            await this.whatsappService.sendMessageWithImage(
+                                sessionId,
+                                message.telefono,
+                                message.mensaje,
+                                metadata.filePath
+                            );
+                        } else {
+                            await this.whatsappService.sendMessage(
+                                sessionId,
+                                message.telefono,
+                                message.mensaje
+                            );
+                        }
 
                         // Actualizar estado del mensaje
                         await pool.execute(
@@ -269,17 +302,47 @@ class CampaignService {
                     } catch (error) {
                         console.error(`✗ Error enviando mensaje ${message.id}:`, error);
 
-                        // Marcar mensaje como fallido
+                        // Marcar mensaje como fallido con detalles
                         const errorMsg = error?.message || error?.toString() || 'Error desconocido';
+                        const observacion = this.determineErrorType(errorMsg);
+                        
                         await pool.execute(
-                            'UPDATE mensajes SET estado = ?, error_mensaje = ? WHERE id = ?',
-                            ['fallido', errorMsg, message.id]
+                            'UPDATE mensajes SET estado = ?, error_mensaje = ?, observacion = ? WHERE id = ?',
+                            ['fallido', errorMsg, observacion, message.id]
                         );
 
                         await pool.execute(
                             'UPDATE campanas SET mensajes_fallidos = mensajes_fallidos + 1 WHERE id = ?',
                             [campaignId]
                         );
+
+                        // Emitir evento de error para mostrar en frontend
+                        this.io.emit(`campaign-error-message-${campaignId}`, {
+                            messageId: message.id,
+                            deviceId: step.deviceId,
+                            telefono: message.telefono,
+                            mensaje: message.mensaje,
+                            observacion,
+                            error: errorMsg
+                        });
+
+                        // Incrementar contador de fallos del dispositivo
+                        const currentFailures = deviceFailures.get(step.deviceId) || 0;
+                        deviceFailures.set(step.deviceId, currentFailures + 1);
+
+                        // Si el dispositivo alcanza el umbral de fallos, redistribuir
+                        if (currentFailures + 1 >= FAILURE_THRESHOLD) {
+                            console.log(`⚠️ Dispositivo ${step.deviceId} alcanzó ${currentFailures + 1} fallos. Iniciando redistribución...`);
+                            
+                            await this.redistributeMessages(
+                                campaignId, 
+                                step.deviceId, 
+                                devices.filter(d => d.id !== step.deviceId)
+                            );
+                            
+                            // Resetear contador de fallos
+                            deviceFailures.set(step.deviceId, 0);
+                        }
                     }
                 }
 
@@ -418,6 +481,114 @@ class CampaignService {
         } catch (error) {
             console.error('Error obteniendo estado de campaña:', error);
             throw error;
+        }
+    }
+
+    // Obtener errores de una campaña
+    async getCampaignErrors(campaignId) {
+        try {
+            const [errors] = await pool.execute(
+                `SELECT m.id, m.mensaje, m.error_mensaje, m.observacion, m.fecha_envio,
+                 c.telefono, c.nombre, d.id as dispositivo_id, d.nombre_dispositivo
+                 FROM mensajes m
+                 JOIN contactos c ON m.contacto_id = c.id
+                 JOIN dispositivos d ON m.dispositivo_id = d.id
+                 WHERE m.campana_id = ? AND m.estado = 'fallido'
+                 ORDER BY m.fecha_envio DESC`,
+                [campaignId]
+            );
+
+            return errors;
+
+        } catch (error) {
+            console.error('Error obteniendo errores de campaña:', error);
+            throw error;
+        }
+    }
+
+    // Determinar tipo de error basado en el mensaje
+    determineErrorType(errorMessage) {
+        const errorLower = errorMessage.toLowerCase();
+        
+        if (errorLower.includes('not registered') || errorLower.includes('no registrado') || 
+            errorLower.includes('invalid number') || errorLower.includes('número inválido')) {
+            return 'Número inexistente o no tiene WhatsApp';
+        } else if (errorLower.includes('blocked') || errorLower.includes('bloqueado')) {
+            return 'Número bloqueado';
+        } else if (errorLower.includes('timeout') || errorLower.includes('time out')) {
+            return 'Tiempo de espera agotado';
+        } else if (errorLower.includes('disconnected') || errorLower.includes('desconectado')) {
+            return 'Dispositivo desconectado';
+        } else if (errorLower.includes('rate limit') || errorLower.includes('spam')) {
+            return 'Límite de envío alcanzado (SPAM)';
+        } else if (errorLower.includes('network') || errorLower.includes('red')) {
+            return 'Error de conexión de red';
+        } else {
+            return 'Error desconocido';
+        }
+    }
+
+    // Redistribuir mensajes pendientes cuando un dispositivo falla
+    async redistributeMessages(campaignId, failedDeviceId, activeDevices) {
+        try {
+            console.log(`🔄 Redistribuyendo mensajes del dispositivo ${failedDeviceId}...`);
+
+            if (activeDevices.length === 0) {
+                console.error('❌ No hay dispositivos activos para redistribuir');
+                return;
+            }
+
+            // Obtener mensajes pendientes del dispositivo fallido
+            const [pendingMessages] = await pool.execute(
+                `SELECT id FROM mensajes 
+                 WHERE campana_id = ? AND dispositivo_id = ? AND estado = 'pendiente'`,
+                [campaignId, failedDeviceId]
+            );
+
+            if (pendingMessages.length === 0) {
+                console.log('✓ No hay mensajes pendientes para redistribuir');
+                return;
+            }
+
+            console.log(`   📊 ${pendingMessages.length} mensajes a redistribuir entre ${activeDevices.length} dispositivos`);
+
+            // Redistribuir equitativamente
+            let deviceIndex = 0;
+            for (const message of pendingMessages) {
+                const newDevice = activeDevices[deviceIndex];
+                
+                await pool.execute(
+                    'UPDATE mensajes SET dispositivo_id = ? WHERE id = ?',
+                    [newDevice.id, message.id]
+                );
+
+                deviceIndex = (deviceIndex + 1) % activeDevices.length;
+            }
+
+            // Calcular nueva distribución
+            const [newDistribution] = await pool.execute(
+                `SELECT d.id, d.nombre_dispositivo, COUNT(*) as total 
+                 FROM mensajes m 
+                 JOIN dispositivos d ON m.dispositivo_id = d.id 
+                 WHERE m.campana_id = ? AND m.estado = 'pendiente'
+                 GROUP BY d.id`,
+                [campaignId]
+            );
+
+            console.log(`   ✅ Redistribución completada. Nueva distribución:`);
+            newDistribution.forEach(d => {
+                console.log(`      📱 Dispositivo ${d.id} (${d.nombre_dispositivo}): ${d.total} mensajes`);
+            });
+
+            // Emitir evento de redistribución
+            this.io.emit(`campaign-redistributed-${campaignId}`, {
+                failedDeviceId,
+                redistributedCount: pendingMessages.length,
+                newDistribution
+            });
+
+        } catch (error) {
+            console.error('Error en redistribución:', error);
         }
     }
 }

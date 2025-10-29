@@ -231,5 +231,28 @@ router.get('/:id/status', verifyToken, async (req, res) => {
     }
 });
 
+// Obtener errores de campaña
+router.get('/:id/errors', verifyToken, async (req, res) => {
+    try {
+        const campaignId = req.params.id;
+        const campaignService = req.app.get('campaignService');
+
+        const errors = await campaignService.getCampaignErrors(campaignId);
+
+        res.json({
+            success: true,
+            errors,
+            total: errors.length
+        });
+
+    } catch (error) {
+        console.error('Error obteniendo errores:', error);
+        res.status(500).json({
+            error: true,
+            message: 'Error al obtener errores de campaña'
+        });
+    }
+});
+
 module.exports = router;
 

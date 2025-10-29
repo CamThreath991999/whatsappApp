@@ -96,6 +96,8 @@ CREATE TABLE IF NOT EXISTS mensajes (
     mensaje TEXT NOT NULL,
     estado ENUM('pendiente', 'enviado', 'fallido', 'programado') DEFAULT 'pendiente',
     error_mensaje TEXT,
+    observacion VARCHAR(255),
+    metadata JSON,
     fecha_programado TIMESTAMP NULL,
     fecha_envio TIMESTAMP NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -107,6 +109,10 @@ CREATE TABLE IF NOT EXISTS mensajes (
     INDEX idx_estado (estado),
     INDEX idx_dispositivo (dispositivo_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Agregar campos si no existen (para bases de datos existentes)
+ALTER TABLE mensajes ADD COLUMN IF NOT EXISTS observacion VARCHAR(255) AFTER error_mensaje;
+ALTER TABLE mensajes ADD COLUMN IF NOT EXISTS metadata JSON AFTER observacion;
 
 -- Tabla de chats (conversaciones)
 CREATE TABLE IF NOT EXISTS chats (

@@ -165,15 +165,69 @@ class WhatsAppServiceBaileys {
                 throw new Error(`Sesión ${sessionId} no encontrada`);
             }
 
+            // Limpiar el número de entrada (eliminar espacios, guiones, etc.)
+            let cleanNumber = to.toString().replace(/\D/g, '');
+            
             // Formato correcto del número
-            const jid = to.includes('@s.whatsapp.net') ? to : `${to}@s.whatsapp.net`;
+            // Si ya tiene @s.whatsapp.net, usarlo tal cual
+            // Si no, agregarlo
+            const jid = to.includes('@s.whatsapp.net') ? to : `${cleanNumber}@s.whatsapp.net`;
 
             await sock.sendMessage(jid, { text: message });
-            console.log(`✅ Mensaje enviado a ${to} desde ${sessionId}`);
+            console.log(`✅ Mensaje enviado a ${cleanNumber} (JID: ${jid}) desde ${sessionId}`);
+
+            // ✅ CORRECCIÓN: Guardar el mensaje saliente en chats.json
+            await this.saveChatOutgoing(sessionId, jid, message);
 
             return { success: true };
         } catch (error) {
             console.error(`❌ Error enviando mensaje:`, error);
+            throw error;
+        }
+    }
+
+    // Enviar mensaje con imagen
+    async sendMessageWithImage(sessionId, to, message, imagePath) {
+        try {
+            const sock = this.clients.get(sessionId);
+            if (!sock) {
+                throw new Error(`Sesión ${sessionId} no encontrada`);
+            }
+
+            // Limpiar el número de entrada
+            let cleanNumber = to.toString().replace(/\D/g, '');
+            
+            // Formato correcto del número
+            const jid = to.includes('@s.whatsapp.net') ? to : `${cleanNumber}@s.whatsapp.net`;
+
+            // Verificar si la ruta es absoluta o relativa
+            let fullImagePath = imagePath;
+            if (!path.isAbsolute(imagePath)) {
+                fullImagePath = path.join(__dirname, '../../../uploads', imagePath);
+            }
+
+            // Verificar que el archivo exista
+            if (!fs.existsSync(fullImagePath)) {
+                console.error(`❌ Imagen no encontrada: ${fullImagePath}`);
+                throw new Error(`Imagen no encontrada: ${fullImagePath}`);
+            }
+
+            // Leer la imagen y enviarla
+            const imageBuffer = fs.readFileSync(fullImagePath);
+            
+            await sock.sendMessage(jid, {
+                image: imageBuffer,
+                caption: message
+            });
+
+            console.log(`✅ Imagen enviada a ${cleanNumber} (JID: ${jid}) desde ${sessionId}`);
+
+            // Guardar el mensaje saliente en chats.json
+            await this.saveChatOutgoing(sessionId, jid, `📎 ${message}`);
+
+            return { success: true };
+        } catch (error) {
+            console.error(`❌ Error enviando mensaje con imagen:`, error);
             throw error;
         }
     }
@@ -317,6 +371,70 @@ class WhatsAppServiceBaileys {
             fs.writeFileSync(chatsPath, JSON.stringify(chats, null, 2));
         } catch (error) {
             console.error('Error guardando chat:', error);
+        }
+    }
+
+    // Guardar mensajes salientes (cuando YO envío)
+    async saveChatOutgoing(sessionId, chatId, message) {
+        try {
+            const chatsPath = path.join(__dirname, '../../../sessions', sessionId, 'chats.json');
+            const sessionPath = path.join(__dirname, '../../../sessions', sessionId);
+            
+            if (!fs.existsSync(sessionPath)) {
+                fs.mkdirSync(sessionPath, { recursive: true });
+            }
+
+            let chats = [];
+            if (fs.existsSync(chatsPath)) {
+                try {
+                    const chatsData = fs.readFileSync(chatsPath, 'utf8');
+                    chats = JSON.parse(chatsData);
+                } catch (e) {
+                    console.error('Error parseando chats.json:', e);
+                    chats = [];
+                }
+            }
+
+            // Buscar el chat existente por chatId
+            let chat = chats.find(c => c.id === chatId);
+            
+            if (!chat) {
+                // Crear nuevo chat
+                const phoneNumber = chatId.split('@')[0];
+                chat = {
+                    id: chatId,
+                    name: phoneNumber,
+                    messages: [],
+                    lastMessage: message,
+                    lastTimestamp: Math.floor(Date.now() / 1000),
+                    unreadCount: 0
+                };
+                chats.push(chat);
+                console.log(`📝 Nuevo chat creado para ${phoneNumber}`);
+            } else {
+                // Actualizar chat existente
+                chat.lastMessage = message;
+                chat.lastTimestamp = Math.floor(Date.now() / 1000);
+            }
+
+            // Agregar mensaje al chat
+            chat.messages.push({
+                text: message,
+                timestamp: Math.floor(Date.now() / 1000),
+                fromMe: true  // ✅ IMPORTANTE: marcar como mensaje propio
+            });
+
+            // Mantener solo últimos 100 mensajes por chat
+            if (chat.messages.length > 100) {
+                chat.messages = chat.messages.slice(-100);
+            }
+
+            // Guardar archivo actualizado
+            fs.writeFileSync(chatsPath, JSON.stringify(chats, null, 2));
+            console.log(`✅ Chat guardado: ${chatId.split('@')[0]} - "${message.substring(0, 30)}..."`);
+            
+        } catch (error) {
+            console.error('❌ Error guardando chat saliente:', error);
         }
     }
 }

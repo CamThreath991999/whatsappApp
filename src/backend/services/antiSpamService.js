@@ -3,26 +3,27 @@ const { redisHelper } = require('../../config/redis');
 class AntiSpamService {
     constructor() {
         this.config = {
-            // Pausas MÁS LARGAS para evitar bloqueo
-            minPauseBetweenMessages: 15000,      // 15 segundos (aumentado de 10)
-            maxPauseBetweenMessages: 45000,      // 45 segundos (aumentado de 30)
-            minPauseAfterBatch: 30000,           // 30 segundos (aumentado de 15)
-            maxPauseAfterBatch: 90000,           // 90 segundos / 1.5 min (aumentado de 45)
-            minPauseBetweenLots: 120000,         // 2 minutos (aumentado de 30s)
-            maxPauseBetweenLots: 300000,         // 5 minutos (aumentado de 3.3 min)
+            // Pausas entre mensajes (15-45 segundos como requisito)
+            minPauseBetweenMessages: 15000,      // 15 segundos
+            maxPauseBetweenMessages: 45000,      // 45 segundos
+            minPauseAfterBatch: 30000,           // 30 segundos
+            maxPauseAfterBatch: 90000,           // 90 segundos / 1.5 min
+            minPauseBetweenLots: 120000,         // 2 minutos
+            maxPauseBetweenLots: 300000,         // 5 minutos
             minMessagesPerBatch: 1,
-            maxMessagesPerBatch: 2,              // REDUCIDO a 2 (antes 3) - MÁS SEGURO
+            maxMessagesPerBatch: 1,              // 1 mensaje por vez para mayor seguridad
             lotRanges: [
                 { min: 1, max: 3 },              // Mini lotes: 1-3 mensajes
-                { min: 3, max: 7 },              // Pequeños: 3-7 mensajes
+                { min: 3, max: 5 },              // Pequeños: 3-5 mensajes
                 { min: 7, max: 12 },             // Medianos: 7-12 mensajes
                 { min: 12, max: 18 },            // Grandes: 12-18 mensajes
                 { min: 18, max: 25 }             // Muy grandes: 18-25 mensajes
             ],
             // Límites de seguridad
             maxMessagesPerDevice: 50,            // Máximo 50 mensajes por dispositivo antes de cambiar
-            maxMessagesBeforeHumanBehavior: 10,  // Cada 10 mensajes ejecutar comportamiento humano
-            humanBehaviorProbability: 0.8        // 80% probabilidad de comportamiento humano
+            maxMessagesBeforeHumanBehavior: 1,   // Comportamiento humano ANTES de cada cambio de dispositivo
+            humanBehaviorProbability: 1.0,       // 100% probabilidad (obligatorio antes de cambiar dispositivo)
+            requireBehaviorBeforeDeviceSwitch: true  // NUEVO: Obligar comportamiento antes de cambiar
         };
     }
 
@@ -203,6 +204,7 @@ class AntiSpamService {
         let lotCounter = 0;
         let messagesInCurrentLot = 0;
         let stepCounter = 0;
+        let lastDeviceId = null;  // Para detectar cambios de dispositivo
 
         while (totalSent < totalMessages && activeDevices.length > 0) {
             // **ROTACIÓN ALEATORIA** - Seleccionar dispositivo random
@@ -217,7 +219,19 @@ class AntiSpamService {
                 continue;
             }
 
-            // Tamaño de batch ALEATORIO (1-2 mensajes)
+            // **COMPORTAMIENTO HUMANO OBLIGATORIO ANTES DE CAMBIAR DE DISPOSITIVO**
+            if (lastDeviceId !== null && lastDeviceId !== deviceId && this.config.requireBehaviorBeforeDeviceSwitch) {
+                plan.push({
+                    type: 'human_behavior',
+                    deviceId: parseInt(lastDeviceId),
+                    probability: 1.0,  // 100% obligatorio
+                    reason: 'device_switch',
+                    repeatCount: this.randomInRange(1, 3)  // 1-3 comportamientos
+                });
+                console.log(`   🤖 COMPORTAMIENTO HUMANO OBLIGATORIO (cambio de dispositivo ${lastDeviceId} → ${deviceId})`);
+            }
+
+            // Tamaño de batch ALEATORIO (ahora siempre 1 mensaje)
             const batchSize = this.randomInRange(
                 this.config.minMessagesPerBatch,
                 this.config.maxMessagesPerBatch
@@ -250,6 +264,7 @@ class AntiSpamService {
                 deviceData.messagesSentInSession += messagesToSend.length;
                 totalSent += messagesToSend.length;
                 messagesInCurrentLot += messagesToSend.length;
+                lastDeviceId = deviceId;  // Actualizar último dispositivo usado
 
                 console.log(`   🔄 Paso ${stepCounter}: Dispositivo ${deviceId} enviará ${messagesToSend.length} mensaje(s) [${totalSent}/${totalMessages}]`);
 
@@ -271,16 +286,6 @@ class AntiSpamService {
                     });
                     
                     console.log(`   ⏸️ PAUSA DE LOTE ${lotCounter}: ${Math.floor(lotPause / 1000)}s`);
-                }
-
-                // **COMPORTAMIENTO HUMANO** cada 10-15 mensajes
-                if (totalSent % this.randomInRange(10, 15) === 0) {
-                    plan.push({
-                        type: 'human_behavior',
-                        deviceId: parseInt(deviceId),
-                        probability: this.config.humanBehaviorProbability
-                    });
-                    console.log(`   🤖 Comportamiento humano programado`);
                 }
             }
         }
