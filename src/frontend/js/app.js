@@ -1443,20 +1443,17 @@ async function sendReply(sessionId, chatId) {
         const sendBtn = document.getElementById('sendReplyBtn');
         if (sendBtn) sendBtn.disabled = true;
 
-        // Agregar mensaje optimísticamente a la UI
+        // Mostrar indicador de envío
         const messagesContainer = document.getElementById('messagesContainer');
         if (messagesContainer) {
-            const time = new Date().toLocaleString('es-PE', {
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-            const messageHtml = `
-                <div class="message message-sent">
-                    <div class="message-text">${escapeHtml(message)}</div>
-                    <div class="message-time">${time} ⏳</div>
-                </div>
+            const sendingIndicator = document.createElement('div');
+            sendingIndicator.id = 'sending-indicator';
+            sendingIndicator.className = 'message message-sent';
+            sendingIndicator.innerHTML = `
+                <div class="message-text">${escapeHtml(message)}</div>
+                <div class="message-time">Enviando... ⏳</div>
             `;
-            messagesContainer.innerHTML += messageHtml;
+            messagesContainer.appendChild(sendingIndicator);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
 
@@ -1469,19 +1466,29 @@ async function sendReply(sessionId, chatId) {
         // Limpiar input
         if (messageInput) messageInput.value = '';
         
-        showAlert('✅ Mensaje enviado', 'success');
+        // Eliminar indicador de envío
+        const sendingIndicator = document.getElementById('sending-indicator');
+        if (sendingIndicator) {
+            sendingIndicator.remove();
+        }
 
-        // Recargar mensajes después de un breve delay
-        setTimeout(() => {
-            loadChatMessages(sessionId, chatId);
-        }, 500);
+        // Recargar mensajes para mostrar el mensaje real del servidor
+        await loadChatMessages(sessionId, chatId);
+        
+        showAlert('✅ Mensaje enviado', 'success');
 
     } catch (error) {
         console.error('Error enviando mensaje:', error);
         showAlert('❌ Error enviando mensaje: ' + (error.message || ''), 'error');
         
+        // Eliminar indicador de envío en caso de error
+        const sendingIndicator = document.getElementById('sending-indicator');
+        if (sendingIndicator) {
+            sendingIndicator.remove();
+        }
+        
         // Recargar para mostrar estado correcto
-        loadChatMessages(sessionId, chatId);
+        await loadChatMessages(sessionId, chatId);
     } finally {
         // Rehabilitar input
         if (messageInput) messageInput.disabled = false;

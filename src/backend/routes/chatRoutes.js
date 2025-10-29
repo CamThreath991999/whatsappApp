@@ -197,66 +197,9 @@ router.post('/:sessionId/:chatId/reply', verifyToken, async (req, res) => {
         const normalizedChatId = chatId.includes('@') ? chatId : `${chatId}@s.whatsapp.net`;
 
         // Enviar mensaje
+        // NOTA: sendMessage() ya guarda el mensaje en chats.json automáticamente
+        // a través de saveChatOutgoing(), por lo que NO necesitamos guardarlo aquí
         await whatsappService.sendMessage(sessionId, chatId.split('@')[0], message.trim());
-
-        // Guardar mensaje en chats.json para evitar duplicación
-        const chatsPath = path.join(__dirname, '../../../sessions', sessionId, 'chats.json');
-        const sessionPath = path.join(__dirname, '../../../sessions', sessionId);
-        
-        // Asegurar que el directorio de sesión existe
-        if (!fs.existsSync(sessionPath)) {
-            fs.mkdirSync(sessionPath, { recursive: true });
-        }
-
-        let chats = [];
-        if (fs.existsSync(chatsPath)) {
-            try {
-                const chatsData = fs.readFileSync(chatsPath, 'utf8');
-                chats = JSON.parse(chatsData);
-            } catch (err) {
-                console.error('Error leyendo chats.json:', err);
-                chats = [];
-            }
-        }
-
-        // Buscar o crear el chat usando el chatId normalizado
-        let chat = chats.find(c => c.id === normalizedChatId);
-        
-        if (!chat) {
-            // Crear nuevo chat si no existe
-            chat = {
-                id: normalizedChatId,
-                name: chatId.split('@')[0],
-                messages: [],
-                lastMessage: '',
-                lastTimestamp: 0,
-                unreadCount: 0
-            };
-            chats.push(chat);
-        }
-
-        // Agregar mensaje al chat
-        const timestamp = Math.floor(Date.now() / 1000);
-        chat.messages.push({
-            text: message.trim(),
-            timestamp: timestamp,
-            fromMe: true
-        });
-        
-        chat.lastMessage = message.trim();
-        chat.lastTimestamp = timestamp;
-
-        // Mantener solo últimos 100 mensajes por chat
-        if (chat.messages.length > 100) {
-            chat.messages = chat.messages.slice(-100);
-        }
-
-        // Guardar chats actualizados
-        try {
-            fs.writeFileSync(chatsPath, JSON.stringify(chats, null, 2));
-        } catch (err) {
-            console.error('Error guardando chats.json:', err);
-        }
 
         res.json({
             success: true,

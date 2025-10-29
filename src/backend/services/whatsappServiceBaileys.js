@@ -128,19 +128,68 @@ class WhatsAppServiceBaileys {
                 for (const msg of messages) {
                     if (msg.key.fromMe) continue; // Ignorar mensajes propios
                     
-                    const chatId = msg.key.remoteJid;
+                    // 🔍 DEBUG COMPLETO - Mostrar toda la información del mensaje
+                    console.log('\n📨 ========== MENSAJE RECIBIDO ==========');
+                    console.log('Session:', sessionId);
+                    console.log('Full message key:', JSON.stringify(msg.key, null, 2));
+                    console.log('Push name:', msg.pushName);
+                    
+                    // ✅✅✅ SOLUCIÓN DEFINITIVA ✅✅✅
+                    // Prioridad para obtener el número real:
+                    // 1. remoteJidAlt (el número real cuando hay @lid)
+                    // 2. participant (en grupos)
+                    // 3. remoteJid (fallback)
+                    
+                    let rawJid;
+                    if (msg.key.remoteJidAlt) {
+                        // Si existe remoteJidAlt, ES EL NÚMERO REAL
+                        rawJid = msg.key.remoteJidAlt;
+                        console.log('✅ Usando remoteJidAlt (número real):', rawJid);
+                    } else if (msg.key.participant) {
+                        // En grupos, usar participant
+                        rawJid = msg.key.participant;
+                        console.log('📢 Usando participant (grupo):', rawJid);
+                    } else {
+                        // Fallback a remoteJid
+                        rawJid = msg.key.remoteJid;
+                        console.log('📱 Usando remoteJid (fallback):', rawJid);
+                    }
+                    
+                    // Extraer número del JID
+                    let phoneNumber = rawJid.split('@')[0];
+                    
+                    // Limpiar caracteres no numéricos
+                    phoneNumber = phoneNumber.replace(/\D/g, '');
+                    
+                    console.log('📞 Número extraído:', phoneNumber);
+                    
+                    // Verificar que el número sea válido
+                    if (phoneNumber.length > 15 || phoneNumber.length < 7) {
+                        console.log('⚠️  Número parece inválido (length:', phoneNumber.length, ')');
+                        // Último intento: usar remoteJid original
+                        phoneNumber = msg.key.remoteJid.split('@')[0].replace(/\D/g, '');
+                        console.log('🔄 Usando remoteJid como último recurso:', phoneNumber);
+                    }
+                    
+                    // Reconstruir JID normalizado
+                    const normalizedChatId = `${phoneNumber}@s.whatsapp.net`;
+                    
                     const messageText = msg.message?.conversation || 
-                                      msg.message?.extendedTextMessage?.text || '';
+                                      msg.message?.extendedTextMessage?.text || 
+                                      msg.message?.imageMessage?.caption ||
+                                      'Mensaje multimedia';
                     
-                    console.log(`📨 Mensaje recibido en ${sessionId}: ${chatId.substring(0, 15)}...`);
+                    console.log('✅ JID normalizado final:', normalizedChatId);
+                    console.log('💬 Texto del mensaje:', messageText.substring(0, 50));
+                    console.log('==========================================\n');
                     
-                    // Guardar chat
-                    await this.saveChat(sessionId, chatId, messageText, msg);
+                    // Guardar chat con el ID NORMALIZADO
+                    await this.saveChat(sessionId, normalizedChatId, messageText, msg);
                     
-                    // Emitir nuevo mensaje al frontend
+                    // Emitir nuevo mensaje al frontend con el ID normalizado
                     this.io.emit(`new-message-${sessionId}`, {
                         sessionId,
-                        chatId,
+                        chatId: normalizedChatId,
                         message: messageText,
                         timestamp: msg.messageTimestamp
                     });
@@ -334,29 +383,50 @@ class WhatsAppServiceBaileys {
 
             let chats = [];
             if (fs.existsSync(chatsPath)) {
-                const chatsData = fs.readFileSync(chatsPath, 'utf8');
-                chats = JSON.parse(chatsData);
+                try {
+                    const chatsData = fs.readFileSync(chatsPath, 'utf8');
+                    chats = JSON.parse(chatsData);
+                } catch (e) {
+                    console.error('Error parseando chats.json:', e);
+                    chats = [];
+                }
             }
 
-            // Buscar o crear chat
-            let chat = chats.find(c => c.id === chatId);
+            // Extraer número del chatId
+            const phoneNumber = chatId.split('@')[0].replace(/\D/g, '');
+
+            // ✅ BUSCAR CHAT EXISTENTE POR NÚMERO (no por ID exacto)
+            // Esto evita crear chats duplicados si el JID varía
+            let chat = chats.find(c => {
+                const existingPhone = c.id.split('@')[0].replace(/\D/g, '');
+                return existingPhone === phoneNumber;
+            });
+
             if (!chat) {
+                // Crear nuevo chat con ID normalizado
                 chat = {
-                    id: chatId,
-                    name: chatId.split('@')[0],
+                    id: chatId,  // Ya viene normalizado del evento
+                    name: phoneNumber,
                     messages: [],
                     lastMessage: message,
                     lastTimestamp: fullMessage.messageTimestamp || Date.now(),
                     unreadCount: 0
                 };
                 chats.push(chat);
+                console.log(`📝 Nuevo chat creado: ${phoneNumber} (JID: ${chatId})`);
             } else {
+                // Actualizar chat existente
+                // ✅ Actualizar el ID al normalizado si era diferente
+                if (chat.id !== chatId) {
+                    console.log(`🔄 Actualizando JID: ${chat.id} → ${chatId}`);
+                    chat.id = chatId;
+                }
                 chat.lastMessage = message;
                 chat.lastTimestamp = fullMessage.messageTimestamp || Date.now();
                 chat.unreadCount = (chat.unreadCount || 0) + 1;
             }
 
-            // Guardar chat actualizado
+            // Guardar mensaje
             chat.messages.push({
                 text: message,
                 timestamp: fullMessage.messageTimestamp || Date.now(),
@@ -369,8 +439,10 @@ class WhatsAppServiceBaileys {
             }
 
             fs.writeFileSync(chatsPath, JSON.stringify(chats, null, 2));
+            console.log(`✅ Mensaje guardado en chat: ${phoneNumber}`);
+            
         } catch (error) {
-            console.error('Error guardando chat:', error);
+            console.error('❌ Error guardando chat:', error);
         }
     }
 
@@ -395,14 +467,19 @@ class WhatsAppServiceBaileys {
                 }
             }
 
-            // Buscar el chat existente por chatId
-            let chat = chats.find(c => c.id === chatId);
+            // Extraer número del chatId
+            const phoneNumber = chatId.split('@')[0].replace(/\D/g, '');
+
+            // ✅ BUSCAR CHAT EXISTENTE POR NÚMERO (no por ID exacto)
+            let chat = chats.find(c => {
+                const existingPhone = c.id.split('@')[0].replace(/\D/g, '');
+                return existingPhone === phoneNumber;
+            });
             
             if (!chat) {
-                // Crear nuevo chat
-                const phoneNumber = chatId.split('@')[0];
+                // Crear nuevo chat con ID normalizado
                 chat = {
-                    id: chatId,
+                    id: chatId,  // Ya viene normalizado
                     name: phoneNumber,
                     messages: [],
                     lastMessage: message,
@@ -410,9 +487,14 @@ class WhatsAppServiceBaileys {
                     unreadCount: 0
                 };
                 chats.push(chat);
-                console.log(`📝 Nuevo chat creado para ${phoneNumber}`);
+                console.log(`📝 Nuevo chat creado para ${phoneNumber} (JID: ${chatId})`);
             } else {
                 // Actualizar chat existente
+                // ✅ Actualizar el ID al normalizado si era diferente
+                if (chat.id !== chatId) {
+                    console.log(`🔄 Actualizando JID saliente: ${chat.id} → ${chatId}`);
+                    chat.id = chatId;
+                }
                 chat.lastMessage = message;
                 chat.lastTimestamp = Math.floor(Date.now() / 1000);
             }
@@ -431,7 +513,7 @@ class WhatsAppServiceBaileys {
 
             // Guardar archivo actualizado
             fs.writeFileSync(chatsPath, JSON.stringify(chats, null, 2));
-            console.log(`✅ Chat guardado: ${chatId.split('@')[0]} - "${message.substring(0, 30)}..."`);
+            console.log(`✅ Chat guardado: ${phoneNumber} - "${message.substring(0, 30)}..."`);
             
         } catch (error) {
             console.error('❌ Error guardando chat saliente:', error);
