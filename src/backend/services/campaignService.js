@@ -255,7 +255,13 @@ class CampaignService {
                             console.log('Error parseando metadata:', e);
                         }
 
-                        // Enviar mensaje (con o sin imagen)
+                        // 🤖 30% de probabilidad de conversar con Meta AI antes de enviar
+                        if (Math.random() < 0.3 && client) {
+                            console.log(`🤖 Conversando con Meta AI antes de enviar mensaje...`);
+                            await this.whatsappService.chatWithMetaAI(client, sessionId);
+                        }
+
+                        // Enviar mensaje (con o sin imagen) CON HUMANIZACIÓN
                         if (metadata && metadata.hasFile && metadata.filePath) {
                             console.log(`📎 Enviando mensaje con imagen: ${metadata.filePath}`);
                             await this.whatsappService.sendMessageWithImage(
@@ -268,7 +274,8 @@ class CampaignService {
                             await this.whatsappService.sendMessage(
                                 sessionId,
                                 message.telefono,
-                                message.mensaje
+                                message.mensaje,
+                                { humanize: true } // 🤖 ACTIVAR HUMANIZACIÓN
                             );
                         }
 
@@ -580,11 +587,63 @@ class CampaignService {
                 console.log(`      📱 Dispositivo ${d.id} (${d.nombre_dispositivo}): ${d.total} mensajes`);
             });
 
+            // 🔥 NUEVO: Ajustar parámetros anti-spam para ser MÁS CONSERVADORES
+            console.log(`   ⚙️ Ajustando parámetros anti-spam (pausas más largas)...`);
+            this.antiSpam.config.minPauseBetweenMessages = Math.min(
+                this.antiSpam.config.minPauseBetweenMessages * 1.5, 
+                120000 // Máximo 2 minutos
+            );
+            this.antiSpam.config.maxPauseBetweenMessages = Math.min(
+                this.antiSpam.config.maxPauseBetweenMessages * 1.5, 
+                180000 // Máximo 3 minutos
+            );
+            this.antiSpam.config.longPauseProbability = Math.min(
+                this.antiSpam.config.longPauseProbability + 0.1, 
+                0.5 // Máximo 50% de pausas largas
+            );
+
+            console.log(`      🕐 Nuevas pausas: ${this.antiSpam.config.minPauseBetweenMessages/1000}s - ${this.antiSpam.config.maxPauseBetweenMessages/1000}s`);
+            console.log(`      ⏰ Probabilidad pausas largas: ${this.antiSpam.config.longPauseProbability * 100}%`);
+
+            // 🔥 NUEVO: Regenerar plan de envío con nueva distribución
+            const campaignData = this.activeCampaigns.get(campaignId);
+            if (campaignData) {
+                console.log(`   🔄 Regenerando plan de envío...`);
+                
+                // Obtener TODOS los mensajes pendientes con nueva distribución
+                const [allPendingMessages] = await pool.execute(
+                    `SELECT m.*, c.telefono, c.nombre, d.session_id 
+                     FROM mensajes m
+                     JOIN contactos c ON m.contacto_id = c.id
+                     JOIN dispositivos d ON m.dispositivo_id = d.id
+                     WHERE m.campana_id = ? AND m.estado = 'pendiente'
+                     ORDER BY m.id`,
+                    [campaignId]
+                );
+
+                // Generar nuevo plan con menos dispositivos
+                const newPlan = this.antiSpam.generateSendingPlan(
+                    allPendingMessages,
+                    activeDevices.length
+                );
+
+                // Actualizar el plan en el Map
+                campaignData.plan = newPlan;
+                campaignData.currentStep = 0; // Reiniciar desde el principio del nuevo plan
+                
+                console.log(`   ✅ Nuevo plan generado: ${newPlan.length} pasos`);
+            }
+
             // Emitir evento de redistribución
             this.io.emit(`campaign-redistributed-${campaignId}`, {
                 failedDeviceId,
                 redistributedCount: pendingMessages.length,
-                newDistribution
+                newDistribution,
+                adjustedAntiSpam: {
+                    minPause: this.antiSpam.config.minPauseBetweenMessages,
+                    maxPause: this.antiSpam.config.maxPauseBetweenMessages,
+                    longPauseProbability: this.antiSpam.config.longPauseProbability
+                }
             });
 
         } catch (error) {

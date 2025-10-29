@@ -3,27 +3,35 @@ const { redisHelper } = require('../../config/redis');
 class AntiSpamService {
     constructor() {
         this.config = {
-            // Pausas entre mensajes (15-45 segundos como requisito)
-            minPauseBetweenMessages: 15000,      // 15 segundos
-            maxPauseBetweenMessages: 45000,      // 45 segundos
-            minPauseAfterBatch: 30000,           // 30 segundos
-            maxPauseAfterBatch: 90000,           // 90 segundos / 1.5 min
-            minPauseBetweenLots: 120000,         // 2 minutos
-            maxPauseBetweenLots: 300000,         // 5 minutos
+            // Pausas ULTRA-VARIABLES (no patrones detectables)
+            minPauseBetweenMessages: 20000,      // 20 segundos
+            maxPauseBetweenMessages: 90000,      // 90 segundos (1.5 min)
+            minPauseAfterBatch: 60000,           // 1 minuto
+            maxPauseAfterBatch: 180000,          // 3 minutos
+            minPauseBetweenLots: 180000,         // 3 minutos
+            maxPauseBetweenLots: 420000,         // 7 minutos
             minMessagesPerBatch: 1,
-            maxMessagesPerBatch: 1,              // 1 mensaje por vez para mayor seguridad
+            maxMessagesPerBatch: 2,              // Máximo 2 mensajes por batch
             lotRanges: [
-                { min: 1, max: 3 },              // Mini lotes: 1-3 mensajes
-                { min: 3, max: 5 },              // Pequeños: 3-5 mensajes
-                { min: 7, max: 12 },             // Medianos: 7-12 mensajes
-                { min: 12, max: 18 },            // Grandes: 12-18 mensajes
-                { min: 18, max: 25 }             // Muy grandes: 18-25 mensajes
+                { min: 1, max: 2 },              // Mini lotes: 1-2 mensajes
+                { min: 2, max: 4 },              // Pequeños: 2-4 mensajes
+                { min: 4, max: 7 },              // Medianos: 4-7 mensajes
+                { min: 7, max: 10 }              // Grandes: 7-10 mensajes (MAX)
             ],
-            // Límites de seguridad
-            maxMessagesPerDevice: 50,            // Máximo 50 mensajes por dispositivo antes de cambiar
-            maxMessagesBeforeHumanBehavior: 1,   // Comportamiento humano ANTES de cada cambio de dispositivo
-            humanBehaviorProbability: 1.0,       // 100% probabilidad (obligatorio antes de cambiar dispositivo)
-            requireBehaviorBeforeDeviceSwitch: true  // NUEVO: Obligar comportamiento antes de cambiar
+            // Límites de seguridad MÁS CONSERVADORES
+            maxMessagesPerDevice: 40,            // Máximo 40 mensajes por dispositivo
+            maxMessagesBeforeHumanBehavior: 1,   // Comportamiento humano obligatorio
+            humanBehaviorProbability: 1.0,       // 100% probabilidad
+            requireBehaviorBeforeDeviceSwitch: true,
+            
+            // NUEVOS: Comportamientos avanzados anti-detección
+            useMetaAI: true,                     // Conversar con Meta AI antes de enviar
+            metaAIProbability: 0.3,              // 30% de probabilidad de usar Meta AI
+            longPauseProbability: 0.2,           // 20% chance de pausa ULTRA larga (5-10 min)
+            minLongPause: 300000,                // 5 minutos
+            maxLongPause: 600000,                // 10 minutos
+            variableTypingSpeed: true,           // Simular velocidad de tipeo variable
+            randomReadDelay: true                // Delay aleatorio simulando "lectura"
         };
     }
 
@@ -50,6 +58,19 @@ class AntiSpamService {
     // Generar número aleatorio simple
     randomInRange(min, max) {
         return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    // NUEVO: Delay ultra-variable para evitar detección de patrones
+    getIntelligentDelay(min, max) {
+        // 20% de probabilidad de pausa ULTRA larga
+        if (Math.random() < this.config.longPauseProbability) {
+            const longDelay = this.randomInRange(this.config.minLongPause, this.config.maxLongPause);
+            console.log(`⏰ Pausa ULTRA LARGA: ${Math.round(longDelay / 1000)}s (simulando inactividad humana)`);
+            return longDelay;
+        }
+        
+        // Delay normal con variación gaussiana
+        return this.gaussianRandom(min, max, 1.5); // Skew de 1.5 para más variabilidad
     }
 
     // Calcular estructura de lotes para una campaña
@@ -86,7 +107,7 @@ class AntiSpamService {
                     
                     batches.push({
                         size: batchSize,
-                        pause: this.randomInRange(
+                        pause: this.getIntelligentDelay(
                             this.config.minPauseBetweenMessages,
                             this.config.maxPauseBetweenMessages
                         )
@@ -100,7 +121,7 @@ class AntiSpamService {
                     range: `${range.min}-${range.max}`,
                     totalInLot: lotSize,
                     batches,
-                    pauseAfterLot: this.randomInRange(
+                    pauseAfterLot: this.getIntelligentDelay(
                         this.config.minPauseBetweenLots,
                         this.config.maxPauseBetweenLots
                     )
@@ -126,7 +147,7 @@ class AntiSpamService {
                 
                 batches.push({
                     size: batchSize,
-                    pause: this.randomInRange(
+                    pause: this.getIntelligentDelay(
                         this.config.minPauseBetweenMessages,
                         this.config.maxPauseBetweenMessages
                     )

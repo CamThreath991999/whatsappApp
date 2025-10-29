@@ -14,6 +14,8 @@ class WhatsAppServiceBaileys {
         this.io = io;
         this.clients = new Map(); // sessionId -> socket
         this.authStates = new Map(); // sessionId -> authState
+        this.reconnectAttempts = new Map(); // sessionId -> número de intentos
+        this.MAX_RECONNECT_ATTEMPTS = 5; // Máximo 5 intentos de reconexión
     }
 
     async createSession(sessionId, userId, deviceId) {
@@ -92,9 +94,32 @@ class WhatsAppServiceBaileys {
                     console.log(`❌ Conexión cerrada. Reconectar: ${shouldReconnect}`);
                     
                     if (shouldReconnect) {
-                        console.log('🔄 Reintentando conexión...');
-                        setTimeout(() => this.createSession(sessionId, userId, deviceId), 3000);
+                        // Verificar intentos de reconexión
+                        const attempts = (this.reconnectAttempts.get(sessionId) || 0) + 1;
+                        this.reconnectAttempts.set(sessionId, attempts);
+                        
+                        if (attempts <= this.MAX_RECONNECT_ATTEMPTS) {
+                            console.log(`🔄 Reintentando conexión (intento ${attempts}/${this.MAX_RECONNECT_ATTEMPTS})...`);
+                            setTimeout(() => this.createSession(sessionId, userId, deviceId), 3000 * attempts); // Delay incremental
+                        } else {
+                            console.log(`⛔ Máximo de intentos alcanzado (${this.MAX_RECONNECT_ATTEMPTS}). Deteniendo reconexión.`);
+                            this.reconnectAttempts.delete(sessionId);
+                            this.clients.delete(sessionId);
+                            this.authStates.delete(sessionId);
+                            
+                            await pool.execute(
+                                'UPDATE dispositivos SET estado = ? WHERE session_id = ?',
+                                ['desconectado', sessionId]
+                            );
+                            
+                            // Notificar al frontend
+                            this.io.emit(`device-connection-failed-${sessionId}`, {
+                                sessionId,
+                                message: 'No se pudo reconectar después de múltiples intentos. Por favor, reconecta el dispositivo manualmente.'
+                            });
+                        }
                     } else {
+                        this.reconnectAttempts.delete(sessionId);
                         this.clients.delete(sessionId);
                         this.authStates.delete(sessionId);
                         
@@ -108,6 +133,9 @@ class WhatsAppServiceBaileys {
                 // Conexión abierta (autenticado)
                 if (connection === 'open') {
                     console.log(`✅ Sesión ${sessionId} conectada!`);
+                    
+                    // Resetear contador de intentos al conectar exitosamente
+                    this.reconnectAttempts.delete(sessionId);
                     
                     const phoneNumber = sock.user.id.split(':')[0];
                     
@@ -207,7 +235,7 @@ class WhatsAppServiceBaileys {
         }
     }
 
-    async sendMessage(sessionId, to, message) {
+    async sendMessage(sessionId, to, message, options = {}) {
         try {
             const sock = this.clients.get(sessionId);
             if (!sock) {
@@ -221,6 +249,17 @@ class WhatsAppServiceBaileys {
             // Si ya tiene @s.whatsapp.net, usarlo tal cual
             // Si no, agregarlo
             const jid = to.includes('@s.whatsapp.net') ? to : `${cleanNumber}@s.whatsapp.net`;
+
+            // 🤖 HUMANIZACIÓN: Comportamiento previo al envío
+            if (options.humanize) {
+                console.log(`🤖 Humanizando envío a ${cleanNumber}...`);
+                
+                // 1. Simular "lectura" del chat (delay aleatorio)
+                await this.simulateReading(sock, jid);
+                
+                // 2. Simular "composing" (escribiendo...)
+                await this.simulateTyping(sock, jid, message);
+            }
 
             await sock.sendMessage(jid, { text: message });
             console.log(`✅ Mensaje enviado a ${cleanNumber} (JID: ${jid}) desde ${sessionId}`);
@@ -303,6 +342,105 @@ class WhatsAppServiceBaileys {
         } catch (error) {
             console.error(`❌ Error obteniendo chats:`, error);
             return [];
+        }
+    }
+
+    // ========== FUNCIONES DE HUMANIZACIÓN ==========
+
+    /**
+     * Simula que el usuario está "leyendo" el chat
+     * @param {*} sock - Socket de WhatsApp
+     * @param {string} jid - JID del destinatario
+     */
+    async simulateReading(sock, jid) {
+        try {
+            // Delay aleatorio de 1-3 segundos simulando lectura
+            const readDelay = Math.floor(Math.random() * 2000) + 1000;
+            console.log(`👀 Simulando lectura por ${readDelay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, readDelay));
+            
+            // Enviar "presencia" (online)
+            await sock.sendPresenceUpdate('available', jid);
+        } catch (error) {
+            console.error('Error simulando lectura:', error);
+        }
+    }
+
+    /**
+     * Simula que el usuario está escribiendo
+     * @param {*} sock - Socket de WhatsApp
+     * @param {string} jid - JID del destinatario
+     * @param {string} message - Mensaje a enviar (para calcular tiempo de tipeo)
+     */
+    async simulateTyping(sock, jid, message) {
+        try {
+            // Calcular tiempo de tipeo basado en longitud del mensaje
+            // Velocidad promedio humana: ~40 palabras por minuto = ~200 caracteres por minuto
+            // = ~3.3 caracteres por segundo
+            const charsPerSecond = 3 + Math.random() * 2; // 3-5 chars/segundo (variación humana)
+            const typingTime = Math.min((message.length / charsPerSecond) * 1000, 15000); // Máximo 15 segundos
+            
+            console.log(`⌨️  Simulando escritura por ${Math.round(typingTime)}ms...`);
+            
+            // Enviar "composing" (escribiendo...)
+            await sock.sendPresenceUpdate('composing', jid);
+            
+            // Esperar el tiempo de tipeo
+            await new Promise(resolve => setTimeout(resolve, typingTime));
+            
+            // Volver a "paused" antes de enviar
+            await sock.sendPresenceUpdate('paused', jid);
+            
+            // Mini pausa antes de enviar (humano presiona "enviar")
+            await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300));
+        } catch (error) {
+            console.error('Error simulando tipeo:', error);
+        }
+    }
+
+    /**
+     * Conversa con Meta AI (WhatsApp AI) para parecer más humano
+     * @param {*} sock - Socket de WhatsApp
+     * @param {string} sessionId - ID de sesión
+     */
+    async chatWithMetaAI(sock, sessionId) {
+        try {
+            // JID de Meta AI (WhatsApp AI)
+            const metaAIJid = '447860099299@s.whatsapp.net'; // Número oficial de Meta AI
+            
+            // Preguntas casuales para parecer humano
+            const casualQuestions = [
+                '¿Qué hora es?',
+                'Cuéntame un chiste',
+                '¿Cómo está el clima?',
+                'Dame un consejo',
+                '¿Qué recomiendas hacer hoy?',
+                'Escribe algo motivacional',
+                '¿Alguna curiosidad interesante?'
+            ];
+            
+            const randomQuestion = casualQuestions[Math.floor(Math.random() * casualQuestions.length)];
+            
+            console.log(`🤖 Conversando con Meta AI: "${randomQuestion}"`);
+            
+            // Simular lectura
+            await this.simulateReading(sock, metaAIJid);
+            
+            // Simular tipeo
+            await this.simulateTyping(sock, metaAIJid, randomQuestion);
+            
+            // Enviar mensaje a Meta AI
+            await sock.sendMessage(metaAIJid, { text: randomQuestion });
+            
+            console.log(`✅ Mensaje enviado a Meta AI desde ${sessionId}`);
+            
+            // Esperar respuesta (delay aleatorio 3-8 segundos)
+            const waitTime = 3000 + Math.random() * 5000;
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+            
+        } catch (error) {
+            console.error('❌ Error conversando con Meta AI:', error);
+            // No lanzar error, continuar con el envío normal
         }
     }
 
