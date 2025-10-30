@@ -151,6 +151,41 @@ class WhatsAppServiceBaileys {
                 }
             });
 
+            // Recibos de lectura/entrega
+            sock.ev.on('message-receipt.update', async (updates) => {
+                try {
+                    for (const u of updates) {
+                        const chatId = u.key?.remoteJid;
+                        const messageId = u.key?.id;
+                        if (!chatId || !messageId) continue;
+
+                        // Tipo de recibo (read/delivery)
+                        const isRead = (u.readTimestamp && Number(u.readTimestamp) > 0) || u.receipt === 'read';
+                        const newStatus = isRead ? 'read' : 'delivered';
+                        await this.updateMessageStatus(null, chatId, messageId, newStatus);
+                    }
+                } catch (e) {
+                    console.error('Error actualizando recibos:', e.message);
+                }
+            });
+
+            // Algunas versiones notifican por messages.update
+            sock.ev.on('messages.update', async (updates) => {
+                try {
+                    for (const u of updates) {
+                        const chatId = u.key?.remoteJid;
+                        const messageId = u.key?.id;
+                        if (!chatId || !messageId) continue;
+                        if (u.update && u.update.status) {
+                            const status = u.update.status === 'READ' ? 'read' : (u.update.status === 'DELIVERY_ACK' ? 'delivered' : undefined);
+                            if (status) await this.updateMessageStatus(null, chatId, messageId, status);
+                        }
+                    }
+                } catch (e) {
+                    console.error('messages.update error:', e.message);
+                }
+            });
+
             // Evento: Recibir mensajes
             sock.ev.on('messages.upsert', async ({ messages, type }) => {
                 for (const msg of messages) {
@@ -261,11 +296,11 @@ class WhatsAppServiceBaileys {
                 await this.simulateTyping(sock, jid, message);
             }
 
-            await sock.sendMessage(jid, { text: message });
+            const sent = await sock.sendMessage(jid, { text: message });
             console.log(`✅ Mensaje enviado a ${cleanNumber} (JID: ${jid}) desde ${sessionId}`);
 
-            // ✅ CORRECCIÓN: Guardar el mensaje saliente en chats.json
-            await this.saveChatOutgoing(sessionId, jid, message);
+            // Guardar el mensaje saliente con id para recibos
+            await this.saveChatOutgoing(sessionId, jid, message, sent?.key?.id || null, 'sent');
 
             return { success: true };
         } catch (error) {
@@ -303,19 +338,71 @@ class WhatsAppServiceBaileys {
             // Leer la imagen y enviarla
             const imageBuffer = fs.readFileSync(fullImagePath);
             
-            await sock.sendMessage(jid, {
+            const sent = await sock.sendMessage(jid, {
                 image: imageBuffer,
                 caption: message
             });
 
             console.log(`✅ Imagen enviada a ${cleanNumber} (JID: ${jid}) desde ${sessionId}`);
 
-            // Guardar el mensaje saliente en chats.json
-            await this.saveChatOutgoing(sessionId, jid, `📎 ${message}`);
+            // Guardar el mensaje saliente en chats.json (con media)
+            await this.saveChatOutgoingMedia(sessionId, jid, {
+                text: message,
+                mediaUrl: `/uploads/${path.basename(fullImagePath)}`,
+                mediaType: 'image',
+                fileName: path.basename(fullImagePath),
+                messageId: sent?.key?.id || null,
+                status: 'sent'
+            });
 
             return { success: true };
         } catch (error) {
             console.error(`❌ Error enviando mensaje con imagen:`, error);
+            throw error;
+        }
+    }
+
+    // Enviar documento (PDF u otros)
+    async sendDocument(sessionId, to, filePath, fileName, mimeType) {
+        try {
+            const sock = this.clients.get(sessionId);
+            if (!sock) {
+                throw new Error(`Sesión ${sessionId} no encontrada`);
+            }
+
+            // Normalizar número
+            let cleanNumber = to.toString().replace(/\D/g, '');
+            const jid = to.includes('@s.whatsapp.net') ? to : `${cleanNumber}@s.whatsapp.net`;
+
+            // Resolver ruta absoluta
+            let fullPath = filePath;
+            if (!path.isAbsolute(filePath)) {
+                fullPath = path.join(__dirname, '../../../uploads', filePath);
+            }
+            if (!fs.existsSync(fullPath)) {
+                throw new Error('Archivo no encontrado');
+            }
+
+            const buffer = fs.readFileSync(fullPath);
+            const sent = await sock.sendMessage(jid, {
+                document: buffer,
+                mimetype: mimeType || 'application/pdf',
+                fileName: fileName || path.basename(fullPath)
+            });
+
+            console.log(`✅ Documento enviado a ${cleanNumber} (${fileName})`);
+            // Guardar salida con media
+            await this.saveChatOutgoingMedia(sessionId, jid, {
+                text: fileName,
+                mediaUrl: `/uploads/${path.basename(fullPath)}`,
+                mediaType: mimeType || 'application/pdf',
+                fileName: fileName || path.basename(fullPath),
+                messageId: sent?.key?.id || null,
+                status: 'sent'
+            });
+            return { success: true };
+        } catch (error) {
+            console.error('❌ Error enviando documento:', error);
             throw error;
         }
     }
@@ -585,7 +672,7 @@ class WhatsAppServiceBaileys {
     }
 
     // Guardar mensajes salientes (cuando YO envío)
-    async saveChatOutgoing(sessionId, chatId, message) {
+    async saveChatOutgoing(sessionId, chatId, message, messageId = null, status = 'sent') {
         try {
             const chatsPath = path.join(__dirname, '../../../sessions', sessionId, 'chats.json');
             const sessionPath = path.join(__dirname, '../../../sessions', sessionId);
@@ -641,7 +728,9 @@ class WhatsAppServiceBaileys {
             chat.messages.push({
                 text: message,
                 timestamp: Math.floor(Date.now() / 1000),
-                fromMe: true  // ✅ IMPORTANTE: marcar como mensaje propio
+                fromMe: true,  // ✅ IMPORTANTE: marcar como mensaje propio
+                messageId: messageId || undefined,
+                status
             });
 
             // Mantener solo últimos 100 mensajes por chat
@@ -656,6 +745,84 @@ class WhatsAppServiceBaileys {
         } catch (error) {
             console.error('❌ Error guardando chat saliente:', error);
         }
+    }
+
+    // Guardar mensaje saliente con media
+    async saveChatOutgoingMedia(sessionId, chatId, { text, mediaUrl, mediaType, fileName, messageId = null, status = 'sent' }) {
+        try {
+            const chatsPath = path.join(__dirname, '../../../sessions', sessionId, 'chats.json');
+            const sessionPath = path.join(__dirname, '../../../sessions', sessionId);
+            if (!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath, { recursive: true });
+
+            let chats = [];
+            if (fs.existsSync(chatsPath)) {
+                try { chats = JSON.parse(fs.readFileSync(chatsPath, 'utf8')); } catch { chats = []; }
+            }
+
+            const phoneNumber = chatId.split('@')[0].replace(/\D/g, '');
+            let chat = chats.find(c => c.id.split('@')[0].replace(/\D/g, '') === phoneNumber);
+            if (!chat) {
+                chat = { id: chatId, name: phoneNumber, messages: [], lastMessage: '', lastTimestamp: Math.floor(Date.now()/1000), unreadCount: 0 };
+                chats.push(chat);
+            }
+
+            const now = Math.floor(Date.now()/1000);
+            chat.lastMessage = text || (mediaType?.startsWith('image') ? '📷 Imagen' : '📎 Archivo');
+            chat.lastTimestamp = now;
+
+            chat.messages.push({
+                text: text || '',
+                timestamp: now,
+                fromMe: true,
+                mediaUrl: mediaUrl || null,
+                mediaType: mediaType || null,
+                fileName: fileName || null,
+                messageId: messageId || undefined,
+                status
+            });
+
+            if (chat.messages.length > 100) chat.messages = chat.messages.slice(-100);
+            fs.writeFileSync(chatsPath, JSON.stringify(chats, null, 2));
+        } catch (error) {
+            console.error('❌ Error guardando chat saliente (media):', error);
+        }
+    }
+
+    // Actualizar estado de un mensaje por messageId
+    async updateMessageStatus(sessionId, chatId, messageId, status) {
+        try {
+            if (!chatId || !messageId) return;
+            const sessionIds = sessionId ? [sessionId] : Array.from(this.clients.keys());
+            for (const sid of sessionIds) {
+                const chatsPath = path.join(__dirname, '../../../sessions', sid, 'chats.json');
+                if (!fs.existsSync(chatsPath)) continue;
+                let updated = false;
+                const chats = JSON.parse(fs.readFileSync(chatsPath, 'utf8'));
+                const chat = chats.find(c => c.id === chatId);
+                if (!chat || !chat.messages) continue;
+                chat.messages.forEach(m => {
+                    if (m.messageId === messageId && m.fromMe) {
+                        m.status = status;
+                        updated = true;
+                    }
+                });
+                if (updated) {
+                    fs.writeFileSync(chatsPath, JSON.stringify(chats, null, 2));
+                    break;
+                }
+            }
+        } catch (e) {
+            console.error('Error updateMessageStatus:', e.message);
+        }
+    }
+
+    // Resolver sessionId por chatId (búsqueda simple en memoria)
+    _resolveSessionIdByChat(chatId) {
+        for (const [sessionId, sock] of this.clients.entries()) {
+            // Heurística: si existe, devolvemos el primero; opcionalmente mejorar
+            return sessionId;
+        }
+        return null;
     }
 }
 

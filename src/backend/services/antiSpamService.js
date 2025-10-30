@@ -168,13 +168,59 @@ class AntiSpamService {
         return structure;
     }
 
-    // Generar plan de envío con rotación MEJORADA de dispositivos
-    generateSendingPlan(campaignMessages, devices) {
+    // Generar plan de envío con rotación MEJORADA de dispositivos y horarios
+    generateSendingPlan(campaignMessages, devices, campaignConfig = {}) {
         const plan = [];
+        
+        // Configuración de horario y límites
+        const {
+            horario_inicio = '08:00:00',
+            horario_fin = '19:00:00',
+            max_mensajes_dia = 300,
+            distribucion_automatica = true
+        } = campaignConfig;
         
         console.log(`\n🎯 === GENERANDO PLAN DE ENVÍO ===`);
         console.log(`   📊 Total mensajes: ${campaignMessages.length}`);
         console.log(`   📱 Total dispositivos: ${devices.length}`);
+        console.log(`   ⏰ Horario: ${horario_inicio} - ${horario_fin}`);
+        console.log(`   📈 Máximo mensajes/día: ${max_mensajes_dia}`);
+        
+        // **CÁLCULO DE DISTRIBUCIÓN AUTOMÁTICA EN EL HORARIO**
+        if (distribucion_automatica) {
+            const totalMensajes = Math.min(campaignMessages.length, max_mensajes_dia);
+            const horasDisponibles = this.calcularHorasDisponibles(horario_inicio, horario_fin);
+            const segundosDisponibles = horasDisponibles * 3600;
+            
+            console.log(`   ⏱️ Horas disponibles: ${horasDisponibles.toFixed(1)}h (${segundosDisponibles}s)`);
+            
+            if (totalMensajes > 0 && segundosDisponibles > 0) {
+                // Calcular delay promedio necesario
+                const delayPromedioNecesario = Math.floor(segundosDisponibles / totalMensajes);
+                
+                console.log(`   🎯 Delay promedio necesario: ${delayPromedioNecesario}s (${Math.floor(delayPromedioNecesario / 60)}min)`);
+                
+                // Ajustar pausas basándose en el delay necesario
+                // Crear un rango alrededor del delay promedio (±30%)
+                const minDelay = Math.max(10000, Math.floor(delayPromedioNecesario * 1000 * 0.7)); // mínimo 10s
+                const maxDelay = Math.floor(delayPromedioNecesario * 1000 * 1.3);
+                
+                this.config.minPauseBetweenMessages = minDelay;
+                this.config.maxPauseBetweenMessages = maxDelay;
+                
+                // Ajustar pausas de lote proporcionalmente
+                this.config.minPauseBetweenLots = Math.floor(minDelay * 3);
+                this.config.maxPauseBetweenLots = Math.floor(maxDelay * 3);
+                
+                console.log(`   ✅ Pausas ajustadas automáticamente:`);
+                console.log(`      Entre mensajes: ${Math.floor(minDelay/1000)}s - ${Math.floor(maxDelay/1000)}s`);
+                console.log(`      Entre lotes: ${Math.floor(this.config.minPauseBetweenLots/1000)}s - ${Math.floor(this.config.maxPauseBetweenLots/1000)}s`);
+                
+                // Estimar hora de finalización
+                const tiempoTotalEstimado = (delayPromedioNecesario * totalMensajes) / 3600; // en horas
+                console.log(`   🕐 Tiempo estimado total: ${tiempoTotalEstimado.toFixed(1)}h`);
+            }
+        }
         
         // **AJUSTE DINÁMICO SEGÚN DISPOSITIVOS**
         const isSingleDevice = devices.length === 1;
@@ -182,18 +228,16 @@ class AntiSpamService {
         
         if (isSingleDevice) {
             console.log(`   ⚠️ MODO ULTRA-SEGURO: Solo 1 dispositivo - Pausas MÁS LARGAS`);
-            // Aumentar pausas en 50% para 1 solo dispositivo
-            this.config.minPauseBetweenMessages *= 1.5;
-            this.config.maxPauseBetweenMessages *= 1.5;
-            this.config.minPauseAfterBatch *= 1.5;
-            this.config.maxPauseAfterBatch *= 1.5;
+            // Aumentar pausas en 30% adicional para 1 solo dispositivo
+            this.config.minPauseBetweenMessages = Math.floor(this.config.minPauseBetweenMessages * 1.3);
+            this.config.maxPauseBetweenMessages = Math.floor(this.config.maxPauseBetweenMessages * 1.3);
             this.config.maxMessagesPerBatch = 1; // Solo 1 mensaje por vez
         } else {
             console.log(`   🔄 MODO ROTACIÓN: ${devices.length} dispositivos - Pausas optimizadas`);
             // Con múltiples dispositivos, pausas pueden ser un poco más cortas
-            const reduction = Math.min(0.8 + (deviceMultiplier * 0.05), 1.0);
-            this.config.minPauseBetweenMessages = Math.floor(15000 * reduction);
-            this.config.maxPauseBetweenMessages = Math.floor(45000 * reduction);
+            const reduction = Math.min(0.85 + (deviceMultiplier * 0.03), 1.0);
+            this.config.minPauseBetweenMessages = Math.floor(this.config.minPauseBetweenMessages * reduction);
+            this.config.maxPauseBetweenMessages = Math.floor(this.config.maxPauseBetweenMessages * reduction);
         }
         
         // Agrupar mensajes por dispositivo
@@ -392,6 +436,33 @@ class AntiSpamService {
             return `${minutes}m ${seconds % 60}s`;
         } else {
             return `${seconds}s`;
+        }
+    }
+
+    // Calcular horas disponibles entre dos tiempos (HH:MM:SS)
+    calcularHorasDisponibles(inicio, fin) {
+        try {
+            // Parsear tiempos
+            const [horaInicio, minInicio, segInicio] = inicio.split(':').map(Number);
+            const [horaFin, minFin, segFin] = fin.split(':').map(Number);
+            
+            // Convertir a segundos desde medianoche
+            const segundosInicio = horaInicio * 3600 + minInicio * 60 + (segInicio || 0);
+            const segundosFin = horaFin * 3600 + minFin * 60 + (segFin || 0);
+            
+            // Calcular diferencia
+            let diferenciaSegundos = segundosFin - segundosInicio;
+            
+            // Si el fin es menor que el inicio, asumimos que cruza medianoche
+            if (diferenciaSegundos < 0) {
+                diferenciaSegundos += 24 * 3600;
+            }
+            
+            // Convertir a horas
+            return diferenciaSegundos / 3600;
+        } catch (error) {
+            console.error('Error calculando horas disponibles:', error);
+            return 11; // Default: 11 horas (8am-7pm)
         }
     }
 }

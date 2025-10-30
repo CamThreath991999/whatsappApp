@@ -16,6 +16,8 @@ const deviceRoutes = require('./routes/deviceRoutes');
 const campaignRoutes = require('./routes/campaignRoutes');
 const contactRoutes = require('./routes/contactRoutes');
 const chatRoutes = require('./routes/chatRoutes');
+const notesRoutes = require('./routes/notesRoutes');
+const categoryDeviceRoutes = require('./routes/categoryDeviceRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
 
 // Importar socket handlers
@@ -56,17 +58,23 @@ app.use('/api/devices', deviceRoutes);
 app.use('/api/campaigns', campaignRoutes);
 app.use('/api/contacts', contactRoutes);
 app.use('/api/chats', chatRoutes);
+app.use('/api/notes', notesRoutes);
+app.use('/api/category-devices', categoryDeviceRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/upload', require('./routes/uploadRoutes'));
+
+// Health check para Docker
+app.get('/health', (req, res) => {
+    res.status(200).json({ 
+        status: 'ok', 
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
+});
 
 // Ruta principal
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '../frontend/index.html'));
-});
-
-// Health check
-app.get('/health', (req, res) => {
-    res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
 // Manejo de errores global

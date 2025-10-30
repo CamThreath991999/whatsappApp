@@ -1,9 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../../config/database');
+const { redisClient } = require('../../config/redis');
 const { verifyToken } = require('../middleware/auth');
 const fs = require('fs');
 const path = require('path');
+const multer = require('multer');
+const mime = require('mime-types');
 
 // Obtener chats del usuario desde sessions/*/chats.json
 router.get('/', verifyToken, async (req, res) => {
@@ -395,3 +398,117 @@ router.post('/download-all', verifyToken, async (req, res) => {
 });
 
 module.exports = router;
+
+// Obtener foto de perfil por número (para chats)
+router.get('/profile-picture', verifyToken, async (req, res) => {
+    try {
+        const { phone } = req.query;
+        if (!phone) {
+            return res.status(400).json({ error: true, message: 'Parámetro phone requerido' });
+        }
+
+        const cleanPhone = phone.toString().replace(/\D/g, '');
+
+        // Cache Redis (7 días)
+        const cacheKey = `pp:${cleanPhone}`;
+        try {
+            if (redisClient) {
+                const cached = await redisClient.get(cacheKey);
+                if (cached) {
+                    return res.json({ success: true, profilePicture: cached, cached: true });
+                }
+            }
+        } catch {}
+
+        // Tomar cualquier dispositivo conectado del usuario
+        const [devices] = await pool.execute(
+            'SELECT session_id FROM dispositivos WHERE usuario_id = ? AND estado = ? LIMIT 1',
+            [req.user.id, 'conectado']
+        );
+        if (devices.length === 0) {
+            return res.status(400).json({ error: true, message: 'No hay dispositivos conectados' });
+        }
+
+        const sessionId = devices[0].session_id;
+        const whatsappService = req.app.get('whatsappService');
+        if (!whatsappService) {
+            return res.status(500).json({ error: true, message: 'Servicio de WhatsApp no disponible' });
+        }
+
+        let profilePicUrl = null;
+        try {
+            profilePicUrl = await whatsappService.getProfilePicture(sessionId, cleanPhone);
+        } catch (e) {
+            // degradar a null para no romper UI
+            profilePicUrl = null;
+        }
+
+        if (profilePicUrl) {
+            try { if (redisClient) { await redisClient.set(cacheKey, profilePicUrl, { EX: 60 * 60 * 24 * 7 }); } } catch {}
+        }
+
+        res.json({ success: true, profilePicture: profilePicUrl, cached: false });
+    } catch (error) {
+        console.error('Error obteniendo foto de perfil (chat):', error);
+        res.status(500).json({ error: true, message: 'Error al obtener foto de perfil' });
+    }
+});
+
+// Configuración de uploads para media
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const uploadDir = path.join(__dirname, '../../../uploads');
+        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
+        const ext = path.extname(file.originalname) || '.' + (mime.extension(file.mimetype) || 'bin');
+        cb(null, unique + ext);
+    }
+});
+const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } }); // 25MB
+
+// Enviar media (imagen/pdf)
+router.post('/:sessionId/:chatId/media', verifyToken, upload.single('file'), async (req, res) => {
+    try {
+        const { sessionId, chatId } = req.params;
+        const caption = req.body.caption || '';
+
+        if (!req.file) {
+            return res.status(400).json({ error: true, message: 'Archivo requerido' });
+        }
+
+        // Verificar sesión
+        const [devices] = await pool.execute(
+            'SELECT * FROM dispositivos WHERE session_id = ? AND usuario_id = ? AND estado = ? LIMIT 1',
+            [sessionId, req.user.id, 'conectado']
+        );
+        if (devices.length === 0) {
+            return res.status(400).json({ error: true, message: 'Dispositivo no disponible' });
+        }
+
+        const whatsappService = req.app.get('whatsappService');
+        if (!whatsappService) {
+            return res.status(500).json({ error: true, message: 'Servicio de WhatsApp no disponible' });
+        }
+
+        const to = chatId.split('@')[0];
+        const mimeType = req.file.mimetype;
+        const isImage = mimeType.startsWith('image/');
+        const isPdf = mimeType === 'application/pdf';
+
+        if (isImage) {
+            await whatsappService.sendMessageWithImage(sessionId, to, caption || '', req.file.filename);
+        } else if (isPdf) {
+            await whatsappService.sendDocument(sessionId, to, req.file.filename, req.file.originalname, mimeType);
+        } else {
+            return res.status(400).json({ error: true, message: 'Tipo de archivo no soportado. Solo imágenes o PDF.' });
+        }
+
+        res.json({ success: true, file: req.file.filename });
+    } catch (error) {
+        console.error('Error enviando media:', error);
+        res.status(500).json({ error: true, message: 'Error enviando media' });
+    }
+});

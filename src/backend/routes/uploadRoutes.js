@@ -140,20 +140,23 @@ router.post('/contacts-excel', verifyToken, upload.single('file'), async (req, r
 
                 // Buscar o crear categoría por nombre
                 let categoriaId = null;
+                let categoriaDeviceId = null;
+                
                 if (categoria) {
                     // Buscar categoría por nombre
                     const [categorias] = await pool.execute(
-                        'SELECT id FROM categorias WHERE nombre = ?',
-                        [categoria]
+                        'SELECT id, dispositivo_id FROM categorias WHERE nombre = ? AND usuario_id = ?',
+                        [categoria, req.user.id]
                     );
 
                     if (categorias.length > 0) {
                         categoriaId = categorias[0].id;
+                        categoriaDeviceId = categorias[0].dispositivo_id;
                     } else {
                         // Crear nueva categoría
                         const [resultCat] = await pool.execute(
-                            'INSERT INTO categorias (nombre) VALUES (?)',
-                            [categoria]
+                            'INSERT INTO categorias (nombre, usuario_id) VALUES (?, ?)',
+                            [categoria, req.user.id]
                         );
                         categoriaId = resultCat.insertId;
                         console.log(`   ✅ Categoría "${categoria}" creada con ID ${categoriaId}`);
@@ -187,10 +190,15 @@ router.post('/contacts-excel', verifyToken, upload.single('file'), async (req, r
                     }
                 }
 
-                // **ROTACIÓN DINÁMICA DE DISPOSITIVOS**
+                // **ASIGNACIÓN INTELIGENTE DE DISPOSITIVOS**
                 let deviceId;
-                if (useRotation) {
-                    // MÚLTIPLES DISPOSITIVOS: Rotación aleatoria o secuencial
+                
+                // Prioridad 1: Si la categoría tiene un dispositivo asignado, usar ese
+                if (categoriaDeviceId && devices.some(d => d.id === categoriaDeviceId)) {
+                    deviceId = categoriaDeviceId;
+                    console.log(`   📌 Usando dispositivo asignado a categoría: ${deviceId}`);
+                } else if (useRotation) {
+                    // Prioridad 2: MÚLTIPLES DISPOSITIVOS - Rotación aleatoria o secuencial
                     if (Math.random() < 0.7) {
                         // 70% rotación secuencial (más predecible, menos sospechoso)
                         deviceId = devices[deviceRotationIndex].id;
@@ -200,7 +208,7 @@ router.post('/contacts-excel', verifyToken, upload.single('file'), async (req, r
                         deviceId = devices[Math.floor(Math.random() * devices.length)].id;
                     }
                 } else {
-                    // UN SOLO DISPOSITIVO: Usar siempre el mismo
+                    // Prioridad 3: UN SOLO DISPOSITIVO
                     deviceId = singleDeviceId;
                 }
                 

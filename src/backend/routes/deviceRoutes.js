@@ -39,16 +39,16 @@ router.post('/', verifyToken, async (req, res) => {
             });
         }
 
-        // Verificar límite de dispositivos (máximo 5)
+        // Verificar límite de dispositivos (máximo 20)
         const [devices] = await pool.execute(
             'SELECT COUNT(*) as total FROM dispositivos WHERE usuario_id = ?',
             [req.user.id]
         );
 
-        if (devices[0].total >= 5) {
+        if (devices[0].total >= 20) {
             return res.status(400).json({
                 error: true,
-                message: 'Has alcanzado el límite máximo de 5 dispositivos'
+                message: 'Has alcanzado el límite máximo de 20 dispositivos'
             });
         }
 

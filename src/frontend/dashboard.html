@@ -1,46 +1,57 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - WhatsApp Masivo</title>
+    <!-- Iconos Bootstrap únicamente -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <!-- Sidebar -->
+    <!-- Opcional: splash 3D simple -->
+    <div id="splashScreen" class="splash-screen" style="display:none">
+        <div id="threejsContainer"></div>
+    </div>
+
+    <!-- Sidebar (estructura original) con iconos -->
     <aside class="sidebar">
         <div class="sidebar-header">
-            <h2>WhatsApp Masivo</h2>
+            <h2><i class="bi bi-whatsapp"></i> WhatsApp Masivo</h2>
         </div>
 
         <nav class="sidebar-nav">
             <a href="#" class="nav-item active" data-view="devices">
-                <span class="icon">📱</span>
+                <span class="icon"><i class="bi bi-phone"></i></span>
                 <span>Dispositivos</span>
             </a>
             <a href="#" class="nav-item" data-view="categories">
-                <span class="icon">📂</span>
+                <span class="icon"><i class="bi bi-folder"></i></span>
                 <span>Categorías</span>
             </a>
             <a href="#" class="nav-item" data-view="contacts">
-                <span class="icon">👥</span>
+                <span class="icon"><i class="bi bi-people"></i></span>
                 <span>Contactos</span>
             </a>
             <a href="#" class="nav-item" data-view="campaigns">
-                <span class="icon">📤</span>
+                <span class="icon"><i class="bi bi-send"></i></span>
                 <span>Campañas</span>
             </a>
             <a href="#" class="nav-item" data-view="manual">
-                <span class="icon">✍️</span>
+                <span class="icon"><i class="bi bi-pen"></i></span>
                 <span>Envío Manual</span>
             </a>
             <a href="#" class="nav-item" data-view="chats">
-                <span class="icon">💬</span>
+                <span class="icon"><i class="bi bi-chat-dots"></i></span>
                 <span>Chats</span>
             </a>
-            <a href="#" class="nav-item" data-view="schedule">
-                <span class="icon">🕐</span>
-                <span>Agendados</span>
+            <a href="#" class="nav-item" data-view="calendar">
+                <span class="icon"><i class="bi bi-calendar3"></i></span>
+                <span>Calendario</span>
+            </a>
+            <a href="#" class="nav-item" data-view="notes">
+                <span class="icon"><i class="bi bi-sticky"></i></span>
+                <span>Notas</span>
             </a>
         </nav>
 
@@ -52,12 +63,13 @@
         </div>
     </aside>
 
-    <!-- Main Content -->
+    <!-- Main Content (estructura original) -->
     <main class="main-content">
         <!-- Header -->
         <header class="header">
             <h1 id="viewTitle">Dispositivos</h1>
             <div class="header-actions">
+                <!-- Selector de temas oculto por solicitud -->
                 <button id="headerActionBtn" class="btn btn-primary">+ Nuevo Dispositivo</button>
             </div>
         </header>
@@ -202,7 +214,9 @@
                             <p class="empty-state">Selecciona un chat para ver los mensajes</p>
                         </div>
                         <div class="chat-input" style="display: none;">
+                            <input type="file" id="chatFileInput" accept="image/*,application/pdf" style="display:none;" />
                             <textarea id="replyMessage" class="form-control" rows="2" placeholder="Escribe tu respuesta... (Shift+Enter para nueva línea)"></textarea>
+                            <button id="sendMediaBtn" class="btn btn-secondary" title="Adjuntar archivo">📎 Adjuntar</button>
                             <button id="sendReplyBtn" class="btn btn-primary">📤 Enviar</button>
                         </div>
                     </div>
@@ -213,6 +227,32 @@
             <div id="scheduleView" class="view">
                 <div class="scheduled-campaigns" id="scheduledCampaigns">
                     <!-- Campañas agendadas -->
+                </div>
+            </div>
+
+            <!-- View: Calendar -->
+            <div id="calendarView" class="view">
+                <div class="calendar-toolbar">
+                    <button id="calendarTodayBtn" class="btn btn-secondary btn-sm">Hoy</button>
+                    <button id="calendarPrevBtn" class="btn btn-secondary btn-sm">← Anterior</button>
+                    <button id="calendarNextBtn" class="btn btn-secondary btn-sm">Siguiente →</button>
+                    <span id="calendarCurrentDate" class="calendar-current-date"></span>
+                </div>
+                <div id="calendarContainer" class="calendar-container">
+                    <!-- Calendario se renderizará aquí -->
+                </div>
+                <div class="calendar-legend">
+                    <div class="legend-item"><span class="legend-color" style="background: #28a745;"></span> Completada</div>
+                    <div class="legend-item"><span class="legend-color" style="background: #ffc107;"></span> Agendada</div>
+                    <div class="legend-item"><span class="legend-color" style="background: #007bff;"></span> En Proceso</div>
+                    <div class="legend-item"><span class="legend-color" style="background: #dc3545;"></span> Cancelada</div>
+                </div>
+            </div>
+
+            <!-- View: Notes -->
+            <div id="notesView" class="view">
+                <div class="notes-grid" id="notesGrid">
+                    <!-- Notas se cargarán aquí -->
                 </div>
             </div>
         </div>
@@ -245,14 +285,25 @@
             <div class="modal-body" id="genericModalBody">
                 <!-- Contenido dinámico -->
             </div>
-            <div class="modal-footer" id="genericModalFooter">
+            <div class="modal-footer" id="genericModalAction">
                 <!-- Botones dinámicos -->
             </div>
         </div>
     </div>
 
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <!-- Bootstrap 5 JS Bundle (includes Popper) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Socket.IO -->
     <script src="/socket.io/socket.io.js"></script>
+    
+    <!-- Custom Scripts -->
+    <script src="js/three-init.js"></script>
     <script src="js/app.js"></script>
+    <script src="js/theme-toggle.js"></script>
 </body>
 </html>
 

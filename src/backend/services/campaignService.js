@@ -15,13 +15,43 @@ class CampaignService {
     // Crear nueva campaña
     async createCampaign(userId, campaignData) {
         try {
-            const { nombre, descripcion, tipo, configuracion } = campaignData;
+            const { 
+                nombre, 
+                descripcion, 
+                tipo, 
+                configuracion,
+                fecha_agendada,
+                horario_inicio,
+                horario_fin,
+                max_mensajes_dia,
+                distribucion_automatica
+            } = campaignData;
+
+            // Determinar estado inicial
+            const estadoInicial = fecha_agendada ? 'agendada' : 'borrador';
 
             const [result] = await pool.execute(
-                `INSERT INTO campanas (usuario_id, nombre, descripcion, tipo, configuracion, estado) 
-                 VALUES (?, ?, ?, ?, ?, 'borrador')`,
-                [userId, nombre, descripcion || null, tipo, JSON.stringify(configuracion || {})]
+                `INSERT INTO campanas (
+                    usuario_id, nombre, descripcion, tipo, configuracion, estado,
+                    fecha_agendada, horario_inicio, horario_fin, max_mensajes_dia, distribucion_automatica
+                 ) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    userId, 
+                    nombre, 
+                    descripcion || null, 
+                    tipo, 
+                    JSON.stringify(configuracion || {}),
+                    estadoInicial,
+                    fecha_agendada || null,
+                    horario_inicio || '08:00:00',
+                    horario_fin || '19:00:00',
+                    max_mensajes_dia || 300,
+                    distribucion_automatica !== false ? 1 : 0
+                ]
             );
+
+            console.log(`✅ Campaña creada: ID=${result.insertId}, Estado=${estadoInicial}${fecha_agendada ? ', Agendada para: ' + fecha_agendada : ''}`);
 
             return {
                 success: true,
@@ -70,6 +100,12 @@ class CampaignService {
         try {
             // Verificar que no esté ya en ejecución
             if (this.activeCampaigns.has(campaignId)) {
+                const existing = this.activeCampaigns.get(campaignId);
+                // Si existe pero está pausada, reanudar en lugar de fallar
+                if (existing && existing.paused) {
+                    console.log(`🔄 startCampaign: Detectada campaña ${campaignId} pausada en memoria. Reanudando...`);
+                    return await this.resumeCampaign(campaignId);
+                }
                 throw new Error('La campaña ya está en ejecución');
             }
 
@@ -116,8 +152,8 @@ class CampaignService {
                 ['en_proceso', campaignId]
             );
 
-            // Generar plan de envío
-            const sendingPlan = this.antiSpam.generateSendingPlan(messages, devices);
+            // Generar plan de envío con configuración de campaña
+            const sendingPlan = this.antiSpam.generateSendingPlan(messages, devices, campaign);
 
             // Guardar en campaigns activas
             this.activeCampaigns.set(campaignId, {
@@ -154,7 +190,7 @@ class CampaignService {
     }
 
     // Ejecutar campaña
-    async executeCampaign(campaignId) {
+    async executeCampaign(campaignId, resumeFromStep = 0) {
         try {
             const campaignData = this.activeCampaigns.get(campaignId);
             if (!campaignData) return;
@@ -166,13 +202,19 @@ class CampaignService {
             devices.forEach(d => deviceFailures.set(d.id, 0));
             const FAILURE_THRESHOLD = 3; // Máximo 3 fallos antes de redistribuir
 
-            console.log(`🚀 Iniciando ejecución de campaña ${campaignId} con ${plan.length} pasos`);
+            console.log(`🚀 Iniciando ejecución de campaña ${campaignId} con ${plan.length} pasos (desde paso ${resumeFromStep})`);
 
-            for (let i = 0; i < plan.length; i++) {
+            for (let i = resumeFromStep; i < plan.length; i++) {
                 // Verificar si la campaña fue pausada o cancelada
                 if (campaignData.paused) {
-                    console.log(`⏸️ Campaña ${campaignId} pausada`);
-                    break;
+                    console.log(`⏸️ Campaña ${campaignId} pausada en paso ${i}`);
+                    // Guardar progreso en Redis
+                    await this.saveCampaignProgress(campaignId, {
+                        currentStep: i,
+                        pausedAt: new Date().toISOString(),
+                        totalSteps: plan.length
+                    });
+                    return;
                 }
 
                 const step = plan[i];
@@ -313,9 +355,12 @@ class CampaignService {
                         const errorMsg = error?.message || error?.toString() || 'Error desconocido';
                         const observacion = this.determineErrorType(errorMsg);
                         
+                        // Detectar si es número inválido
+                        const numeroInvalido = observacion === 'numero_no_existe' ? 1 : 0;
+                        
                         await pool.execute(
-                            'UPDATE mensajes SET estado = ?, error_mensaje = ?, observacion = ? WHERE id = ?',
-                            ['fallido', errorMsg, observacion, message.id]
+                            'UPDATE mensajes SET estado = ?, error_mensaje = ?, observacion = ?, numero_invalido = ? WHERE id = ?',
+                            ['fallido', errorMsg, observacion, numeroInvalido, message.id]
                         );
 
                         await pool.execute(
@@ -330,6 +375,7 @@ class CampaignService {
                             telefono: message.telefono,
                             mensaje: message.mensaje,
                             observacion,
+                            numeroInvalido: numeroInvalido === 1,
                             error: errorMsg
                         });
 
@@ -403,30 +449,155 @@ class CampaignService {
     // Pausar campaña
     async pauseCampaign(campaignId) {
         const campaignData = this.activeCampaigns.get(campaignId);
-        if (campaignData) {
-            campaignData.paused = true;
-            await pool.execute(
-                'UPDATE campanas SET estado = ? WHERE id = ?',
-                ['pausada', campaignId]
-            );
-            return { success: true };
+        if (!campaignData) {
+            throw new Error('Campaña no encontrada o no está en ejecución');
         }
-        throw new Error('Campaña no encontrada o no está en ejecución');
+        
+        console.log(`⏸️ Pausando campaña ${campaignId}...`);
+        campaignData.paused = true;
+        
+        // Actualizar estado en BD
+        await pool.execute(
+            'UPDATE campanas SET estado = ? WHERE id = ?',
+            ['pausada', campaignId]
+        );
+        
+        // Guardar progreso actual en Redis
+        await this.saveCampaignProgress(campaignId, {
+            currentStep: campaignData.currentStep,
+            pausedAt: new Date().toISOString(),
+            totalSteps: campaignData.plan.length,
+            plan: campaignData.plan,
+            devices: campaignData.devices
+        });
+        
+        this.io.emit(`campaign-paused-${campaignId}`, {
+            campaignId,
+            currentStep: campaignData.currentStep,
+            totalSteps: campaignData.plan.length,
+            pausedAt: new Date().toISOString()
+        });
+        
+        console.log(`✅ Campaña ${campaignId} pausada exitosamente en paso ${campaignData.currentStep}`);
+        
+        return { 
+            success: true, 
+            currentStep: campaignData.currentStep,
+            totalSteps: campaignData.plan.length
+        };
     }
 
     // Reanudar campaña
     async resumeCampaign(campaignId) {
-        const campaignData = this.activeCampaigns.get(campaignId);
-        if (campaignData) {
-            campaignData.paused = false;
+        try {
+            // Siempre intentar leer progreso más reciente de Redis
+            const savedProgress = await this.getCampaignProgress(campaignId);
+
+            // Verificar si ya está en memoria
+            let campaignData = this.activeCampaigns.get(campaignId);
+            let resumeFromStep = 0;
+            
+            // Si no está en memoria, intentar recuperar desde Redis
+            if (!campaignData) {
+                console.log(`🔄 Recuperando campaña pausada ${campaignId} desde Redis...`);
+                
+                if (!savedProgress) {
+                    // Si no hay progreso guardado, iniciar desde cero
+                    console.log(`⚠️ No se encontró progreso guardado, iniciando campaña desde el principio`);
+                    return await this.startCampaign(campaignId);
+                }
+                
+                // Recuperar datos de la campaña
+                const [campaigns] = await pool.execute(
+                    'SELECT * FROM campanas WHERE id = ?',
+                    [campaignId]
+                );
+                
+                if (campaigns.length === 0) {
+                    throw new Error('Campaña no encontrada');
+                }
+                
+                const campaign = campaigns[0];
+                
+                // Recrear campaignData desde el progreso guardado
+                campaignData = {
+                    campaign,
+                    plan: savedProgress.plan,
+                    devices: savedProgress.devices,
+                    currentStep: savedProgress.currentStep || 0,
+                    paused: false
+                };
+                
+                this.activeCampaigns.set(campaignId, campaignData);
+                resumeFromStep = savedProgress.currentStep || 0;
+                
+                console.log(`✅ Campaña recuperada, reanudando desde paso ${resumeFromStep}`);
+            } else {
+                // Si está en memoria, preferir el progreso guardado si existe
+                if (savedProgress && typeof savedProgress.currentStep === 'number') {
+                    resumeFromStep = savedProgress.currentStep;
+                    campaignData.plan = savedProgress.plan || campaignData.plan;
+                    campaignData.devices = savedProgress.devices || campaignData.devices;
+                } else {
+                    resumeFromStep = campaignData.currentStep || 0;
+                }
+                console.log(`🔄 Reanudando campaña ${campaignId} desde paso ${resumeFromStep}`);
+            }
+            
+            // Actualizar estado en BD
             await pool.execute(
                 'UPDATE campanas SET estado = ? WHERE id = ?',
                 ['en_proceso', campaignId]
             );
-            this.executeCampaign(campaignId);
-            return { success: true };
+            
+            // Desmarcar paused
+            campaignData.paused = false;
+            
+            // Emitir evento
+            this.io.emit(`campaign-resumed-${campaignId}`, {
+                campaignId,
+                resumingFrom: resumeFromStep,
+                totalSteps: campaignData.plan.length
+            });
+            
+            // Continuar ejecución desde donde se quedó
+            this.executeCampaign(campaignId, resumeFromStep);
+            
+            return { 
+                success: true,
+                resumedFrom: resumeFromStep,
+                totalSteps: campaignData.plan.length
+            };
+            
+        } catch (error) {
+            console.error('Error reanudando campaña:', error);
+            throw error;
         }
-        throw new Error('Campaña no encontrada');
+    }
+
+    // Guardar progreso de campaña en Redis
+    async saveCampaignProgress(campaignId, progress) {
+        try {
+            await redisHelper.setCache(
+                `campaign:progress:${campaignId}`,
+                progress,
+                86400 // 24 horas
+            );
+            console.log(`💾 Progreso de campaña ${campaignId} guardado en Redis`);
+        } catch (error) {
+            console.error('Error guardando progreso:', error);
+        }
+    }
+
+    // Obtener progreso de campaña desde Redis
+    async getCampaignProgress(campaignId) {
+        try {
+            const progress = await redisHelper.getCache(`campaign:progress:${campaignId}`);
+            return progress;
+        } catch (error) {
+            console.error('Error obteniendo progreso:', error);
+            return null;
+        }
     }
 
     // Cancelar campaña
