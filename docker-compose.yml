@@ -3,8 +3,6 @@
 # Configuración Multi-PC
 # ==================================
 
-version: '3.8'
-
 services:
   # Base de datos MySQL
   mysql:

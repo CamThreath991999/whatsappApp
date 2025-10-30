@@ -2,7 +2,7 @@
 # Dockerfile para Sistema WhatsApp Masivo
 # ==================================
 
-FROM node:18-alpine
+FROM node:20-alpine
 
 # Información del mantenedor
 LABEL maintainer="Sistema WhatsApp Masivo"
@@ -31,7 +31,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Instalar dependencias de Node.js
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 
 # Copiar el resto del código
 COPY . .
