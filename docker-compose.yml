@@ -85,14 +85,20 @@ services:
       NODE_ENV: production
       
     volumes:
-      # Sesiones de WhatsApp (COMPARTIDO entre contenedores)
+      # OPCIÓN 1: Volúmenes nombrados (recomendado para Docker)
       - whatsapp_sessions:/app/sessions
       - whatsapp_sessions_backup:/app/sessions_backup
-      
-      # Uploads y descargas
       - whatsapp_uploads:/app/uploads
       - whatsapp_downloads:/app/downloads
       - whatsapp_chats:/app/chats
+      
+      # OPCIÓN 2: Montajes bind (para acceso desde sistema de archivos del servidor)
+      # Descomentar estas líneas y comentar las de arriba si necesitas acceso directo desde el servidor
+      # - ./sessions:/app/sessions
+      # - ./sessions_backup:/app/sessions_backup
+      # - ./uploads:/app/uploads
+      # - ./downloads:/app/downloads
+      # - ./chats:/app/chats
       
     ports:
       - "3000:3000"

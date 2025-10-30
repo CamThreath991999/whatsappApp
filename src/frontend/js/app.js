@@ -1634,11 +1634,45 @@ function getColorFromString(str) {
     return colors[Math.abs(hash) % colors.length];
 }
 
+// Actualizar badge de archivos adjuntos
+function updateFileBadge(files) {
+    const fileBadge = document.getElementById('fileBadge');
+    const sendMediaBtn = document.getElementById('sendMediaBtn');
+    
+    if (files && files.length > 0) {
+        // Mostrar badge con número de archivos
+        if (fileBadge) {
+            fileBadge.textContent = files.length > 9 ? '9+' : files.length.toString();
+            fileBadge.style.display = 'inline-flex';
+        }
+        
+        // Cambiar color del botón cuando hay archivos
+        if (sendMediaBtn) {
+            sendMediaBtn.classList.add('has-files');
+        }
+    } else {
+        // Ocultar badge y restaurar color
+        if (fileBadge) {
+            fileBadge.style.display = 'none';
+        }
+        if (sendMediaBtn) {
+            sendMediaBtn.classList.remove('has-files');
+        }
+    }
+}
+
 // Cargar mensajes de un chat específico
 async function loadChatMessages(sessionId, chatId) {
     try {
         currentChatSession = sessionId;
         currentChatId = chatId;
+        
+        // Limpiar archivos seleccionados al cambiar de chat
+        updateFileBadge(null);
+        const fileInput = document.getElementById('chatFileInput');
+        if (fileInput) {
+            fileInput.value = '';
+        }
         
         const response = await apiRequest(`/chats/${sessionId}/${encodeURIComponent(chatId)}/messages`);
         const { chat, messages } = response;
@@ -1728,18 +1762,14 @@ async function loadChatMessages(sessionId, chatId) {
         if (sendMediaBtn) {
             // Abrir selector de archivo
             sendMediaBtn.onclick = () => {
-                const fileInput = document.getElementById('chatFileInput');
                 if (fileInput) fileInput.click();
             };
         }
 
-        // Si el usuario selecciona un archivo, opcionalmente señalamos que hay archivo listo
-        const fileInput = document.getElementById('chatFileInput');
+        // Si el usuario selecciona archivos, actualizar badge
         if (fileInput) {
             fileInput.onchange = () => {
-                if (fileInput.files && fileInput.files.length > 0) {
-                    showAlert('📎 Archivo listo para enviar con el botón Enviar', 'info');
-                }
+                updateFileBadge(fileInput.files);
             };
         }
         
@@ -1813,6 +1843,9 @@ async function sendReply(sessionId, chatId) {
         // Limpiar input
         if (messageInput) messageInput.value = '';
         if (fileInput) fileInput.value = '';
+        
+        // Limpiar badge de archivos
+        updateFileBadge(null);
         
         // Eliminar indicador de envío
         const sendingIndicator = document.getElementById('sending-indicator');
@@ -1944,6 +1977,9 @@ async function sendChatMedia(sessionId, chatId) {
         // Limpiar input y caption
         fileInput.value = '';
         // No limpiamos el texto por si desea enviar el mismo caption como texto
+        
+        // Limpiar badge de archivos
+        updateFileBadge(null);
 
         await loadChatMessages(sessionId, chatId);
         showAlert('✅ Archivo enviado', 'success');
