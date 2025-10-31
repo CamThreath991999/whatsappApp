@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: whatsapp-masivo
+  labels:
+    name: whatsapp-masivo
+

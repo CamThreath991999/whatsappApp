@@ -7,13 +7,34 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 import re
-#ruta
+# Nota: Se pueden agregar imágenes con PIL si es necesario, pero por ahora usamos emojis/unicode
+#inicio
+#fecha_frame
+#El mismo para gestión CALL checkbox_v2_ivr
+#EJECUTAR
 class EvidenciasApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("EVIDENCIAS - Sistema de Gestión")
-        self.root.geometry("1200x900")
+        self.root.title("📋 EVIDENCIAS - Sistema de Gestión de Documentación")
+        
+        # Centrar ventana y hacer que se adapte automáticamente
         self.root.configure(bg="#f5f5f5")
+        self.root.update_idletasks()  # Actualizar para obtener dimensiones reales
+        
+        # Obtener dimensiones de pantalla
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # Tamaño base adaptativo (80% de pantalla máximo)
+        window_width = min(1400, int(screen_width * 0.85))
+        window_height = min(900, int(screen_height * 0.85))
+        
+        # Centrar ventana
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        self.root.minsize(1000, 700)  # Tamaño mínimo
         
         # Variables
         self.datos_fuente_path = None
@@ -42,45 +63,96 @@ class EvidenciasApp:
         self.nombre_carpeta_salida = ""
         self.auditor_window_open = False
         
+        # Diccionario para almacenar archivos no creados (para logs finales)
+        self.archivos_no_creados = {
+            "ivr_sin_match": [],
+            "sms_sin_match": [],
+            "call_sin_match": [],
+            "ivr_sin_audio": [],
+            "call_sin_audio": [],
+            "carpetas_vacias": []
+        }
+        
         self.setup_ui()
         
     def setup_ui(self):
-        # Frame principal con scrollbar
-        main_frame = tk.Frame(self.root, bg="#f5f5f5")
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Título principal con imagen decorativa
+        title_frame = tk.Frame(self.root, bg="#2c3e50", relief=tk.RAISED, bd=2)
+        title_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
         
-        # Canvas para scroll
-        canvas = tk.Canvas(main_frame, bg="#f5f5f5", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg="#f5f5f5")
+        # Frame interno para título con icono
+        title_inner = tk.Frame(title_frame, bg="#2c3e50")
+        title_inner.pack(pady=15)
         
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        # Icono decorativo (emoji grande)
+        icon_label = tk.Label(
+            title_inner,
+            text="📄",
+            font=("Arial", 32),
+            bg="#2c3e50",
+            fg="white"
         )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-        
-        # Título
-        title_frame = tk.Frame(scrollable_frame, bg="#2c3e50", relief=tk.RAISED, bd=2)
-        title_frame.pack(fill=tk.X, pady=(0, 15))
+        icon_label.pack(side=tk.LEFT, padx=(0, 15))
         
         title_label = tk.Label(
-            title_frame,
-            text="📋 EVIDENCIAS",
-            font=("Arial", 24, "bold"),
+            title_inner,
+            text="EVIDENCIAS",
+            font=("Arial", 28, "bold"),
             bg="#2c3e50",
-            fg="white",
-            pady=15
+            fg="white"
         )
-        title_label.pack()
+        title_label.pack(side=tk.LEFT)
         
-        # SECCIÓN BASE
-        base_section = self.create_section(scrollable_frame, "📊 SECCIÓN BASE")
+        subtitle_label = tk.Label(
+            title_frame,
+            text="Sistema de Gestión de Documentación y Procesos",
+            font=("Arial", 11),
+            bg="#2c3e50",
+            fg="#ecf0f1"
+        )
+        subtitle_label.pack(pady=(0, 10))
+        
+        # Notebook para paginación (pestañas)
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # Pestaña 1: SECCIÓN BASE
+        tab_base = tk.Frame(self.notebook, bg="#f5f5f5")
+        self.notebook.add(tab_base, text="📊 BASE")
+        
+        # Canvas para scroll en pestaña BASE
+        canvas_base = tk.Canvas(tab_base, bg="#f5f5f5", highlightthickness=0)
+        scrollbar_base = ttk.Scrollbar(tab_base, orient="vertical", command=canvas_base.yview)
+        scrollable_base = tk.Frame(canvas_base, bg="#f5f5f5")
+        
+        scrollable_base.bind("<Configure>", lambda e: canvas_base.configure(scrollregion=canvas_base.bbox("all")))
+        canvas_base.create_window((0, 0), window=scrollable_base, anchor="nw")
+        canvas_base.configure(yscrollcommand=scrollbar_base.set)
+        
+        canvas_base.pack(side="left", fill="both", expand=True)
+        scrollbar_base.pack(side="right", fill="y")
+        
+        # SECCIÓN BASE con icono decorativo
+        base_section = self.create_section(scrollable_base, "📊 SECCIÓN BASE")
+        
+        # Frame decorativo con ícono
+        decor_frame = tk.Frame(base_section, bg="#ecf0f1", pady=5)
+        decor_frame.pack(fill=tk.X)
+        icon_decor = tk.Label(
+            decor_frame,
+            text="📁",
+            font=("Arial", 24),
+            bg="#ecf0f1"
+        )
+        icon_decor.pack(side=tk.LEFT, padx=(0, 10))
+        desc_decor = tk.Label(
+            decor_frame,
+            text="Cargue los archivos fuente con la información de clientes y gestiones",
+            font=("Arial", 9),
+            bg="#ecf0f1",
+            fg="#7f8c8d"
+        )
+        desc_decor.pack(side=tk.LEFT)
         
         # Nombre cliente + cuenta
         cliente_frame = tk.Frame(base_section, bg="#ecf0f1", pady=10, padx=10)
@@ -125,33 +197,72 @@ class EvidenciasApp:
         self.nuevos_datos_frame.state = "disabled"
         
         # Fechas
-        fecha_frame = tk.Frame(base_section, bg="#ecf0f1", pady=10, padx=10)
-        fecha_frame.pack(fill=tk.X, pady=5)
+        # fecha_frame = tk.Frame(base_section, bg="#ecf0f1", pady=10, padx=10)
+        # fecha_frame.pack(fill=tk.X, pady=5)
         
-        tk.Label(fecha_frame, text="Fecha inicio:", font=("Arial", 10), bg="#ecf0f1").pack(side=tk.LEFT, padx=5)
-        self.fecha_inicio = tk.Entry(fecha_frame, width=12)
-        self.fecha_inicio.insert(0, "20/10/2025")
-        self.fecha_inicio.pack(side=tk.LEFT, padx=5)
+        # tk.Label(fecha_frame, text="Fecha inicio:", font=("Arial", 10), bg="#ecf0f1").pack(side=tk.LEFT, padx=5)
+        # self.fecha_inicio = tk.Entry(fecha_frame, width=12)
+        # self.fecha_inicio.insert(0, "20/10/2025")
+        # self.fecha_inicio.pack(side=tk.LEFT, padx=5)
         
-        tk.Label(fecha_frame, text="Fecha Fin:", font=("Arial", 10), bg="#ecf0f1").pack(side=tk.LEFT, padx=5)
-        self.fecha_fin = tk.Entry(fecha_frame, width=12)
-        self.fecha_fin.insert(0, "24/10/2025")
-        self.fecha_fin.pack(side=tk.LEFT, padx=5)
+        # tk.Label(fecha_frame, text="Fecha Fin:", font=("Arial", 10), bg="#ecf0f1").pack(side=tk.LEFT, padx=5)
+        # self.fecha_fin = tk.Entry(fecha_frame, width=12)
+        # self.fecha_fin.insert(0, "24/10/2025")
+        # self.fecha_fin.pack(side=tk.LEFT, padx=5)
         
         self.probar_coincidencia_btn = tk.Button(
-            fecha_frame,
+            base_section,
             text="🔍 Probar Coincidencia",
             command=self.probar_coincidencia,
             bg="#3498db",
             fg="white",
             font=("Arial", 10, "bold"),
             state="disabled",
-            cursor="hand2"
+            cursor="hand2",
+            pady=5
         )
-        self.probar_coincidencia_btn.pack(side=tk.LEFT, padx=10)
+        self.probar_coincidencia_btn.pack(pady=10)
         
-        # SECCIÓN GESTIONES
-        gestiones_section = self.create_section(scrollable_frame, "⚙️ SECCIÓN GESTIONES")
+        # Configurar scroll para BASE
+        canvas_base.bind_all("<MouseWheel>", lambda e: canvas_base.yview_scroll(int(-1*(e.delta/120)), "units") if self.notebook.index(self.notebook.select()) == 0 else None)
+        
+        # Pestaña 2: SECCIÓN GESTIONES
+        tab_gestiones = tk.Frame(self.notebook, bg="#f5f5f5")
+        self.notebook.add(tab_gestiones, text="⚙️ GESTIONES")
+        
+        # Canvas para scroll en pestaña GESTIONES
+        canvas_gestiones = tk.Canvas(tab_gestiones, bg="#f5f5f5", highlightthickness=0)
+        scrollbar_gestiones = ttk.Scrollbar(tab_gestiones, orient="vertical", command=canvas_gestiones.yview)
+        scrollable_gestiones = tk.Frame(canvas_gestiones, bg="#f5f5f5")
+        
+        scrollable_gestiones.bind("<Configure>", lambda e: canvas_gestiones.configure(scrollregion=canvas_gestiones.bbox("all")))
+        canvas_gestiones.create_window((0, 0), window=scrollable_gestiones, anchor="nw")
+        canvas_gestiones.configure(yscrollcommand=scrollbar_gestiones.set)
+        
+        canvas_gestiones.pack(side="left", fill="both", expand=True)
+        scrollbar_gestiones.pack(side="right", fill="y")
+        
+        # SECCIÓN GESTIONES con icono decorativo
+        gestiones_section = self.create_section(scrollable_gestiones, "⚙️ SECCIÓN GESTIONES")
+        
+        # Frame decorativo
+        decor_gestiones = tk.Frame(gestiones_section, bg="#ecf0f1", pady=5)
+        decor_gestiones.pack(fill=tk.X)
+        icon_gestiones = tk.Label(
+            decor_gestiones,
+            text="⚡",
+            font=("Arial", 24),
+            bg="#ecf0f1"
+        )
+        icon_gestiones.pack(side=tk.LEFT, padx=(0, 10))
+        desc_gestiones = tk.Label(
+            decor_gestiones,
+            text="Configure las gestiones IVR, SMS y CALL con sus archivos y configuraciones correspondientes",
+            font=("Arial", 9),
+            bg="#ecf0f1",
+            fg="#7f8c8d"
+        )
+        desc_gestiones.pack(side=tk.LEFT)
         
         # IVR
         ivr_frame = self.create_gestion_frame(
@@ -179,18 +290,18 @@ class EvidenciasApp:
         )
         
         # Checkbox usar mismo archivo para CALL
-        checkbox_frame = tk.Frame(ivr_frame, bg="#ecf0f1")
-        checkbox_frame.pack(fill=tk.X, pady=5)
-        checkbox_v2_ivr = tk.Checkbutton(
-            checkbox_frame,
-            text="✅ El mismo para gestión CALL",
-            variable=self.ivr_use_for_call,
-            bg="#ecf0f1",
-            font=("Arial", 9),
-            cursor="hand2",
-            command=self.toggle_call_gestiones_selector
-        )
-        checkbox_v2_ivr.pack(side=tk.LEFT)
+        # checkbox_frame = tk.Frame(ivr_frame, bg="#ecf0f1")
+        # checkbox_frame.pack(fill=tk.X, pady=5)
+        # checkbox_v2_ivr = tk.Checkbutton(
+        #     checkbox_frame,
+        #     text="✅ El mismo para gestión CALL",
+        #     variable=self.ivr_use_for_call,
+        #     bg="#ecf0f1",
+        #     font=("Arial", 9),
+        #     cursor="hand2",
+        #     command=self.toggle_call_gestiones_selector
+        # )
+        #checkbox_v2_ivr.pack(side=tk.LEFT)
         
         # Match IVR
         match_frame = tk.Frame(ivr_frame, bg="#ecf0f1", pady=5)
@@ -289,17 +400,48 @@ class EvidenciasApp:
         )
         
         
-        # Checkbox V2 (separado de las gestiones)
-        v2_section = tk.Frame(scrollable_frame, bg="#ecf0f1", pady=10, padx=10, relief=tk.RAISED, bd=2)
+        # Configurar scroll para GESTIONES
+        canvas_gestiones.bind_all("<MouseWheel>", lambda e: canvas_gestiones.yview_scroll(int(-1*(e.delta/120)), "units") if self.notebook.index(self.notebook.select()) == 1 else None)
+        
+        # Pestaña 3: CONFIGURACIÓN V2
+        tab_v2 = tk.Frame(self.notebook, bg="#f5f5f5")
+        self.notebook.add(tab_v2, text="⚙️ V2")
+        
+        # Canvas para scroll en pestaña V2
+        canvas_v2 = tk.Canvas(tab_v2, bg="#f5f5f5", highlightthickness=0)
+        scrollbar_v2 = ttk.Scrollbar(tab_v2, orient="vertical", command=canvas_v2.yview)
+        scrollable_v2 = tk.Frame(canvas_v2, bg="#f5f5f5")
+        
+        scrollable_v2.bind("<Configure>", lambda e: canvas_v2.configure(scrollregion=canvas_v2.bbox("all")))
+        canvas_v2.create_window((0, 0), window=scrollable_v2, anchor="nw")
+        canvas_v2.configure(yscrollcommand=scrollbar_v2.set)
+        
+        canvas_v2.pack(side="left", fill="both", expand=True)
+        scrollbar_v2.pack(side="right", fill="y")
+        
+        # Checkbox V2 con decoración
+        v2_section = tk.Frame(scrollable_v2, bg="#ecf0f1", pady=10, padx=10, relief=tk.RAISED, bd=2)
         v2_section.pack(fill=tk.X, pady=10)
         
+        # Frame con icono
+        v2_header = tk.Frame(v2_section, bg="#ecf0f1")
+        v2_header.pack(anchor=tk.W, pady=5)
+        
+        icon_v2 = tk.Label(
+            v2_header,
+            text="🔄",
+            font=("Arial", 20),
+            bg="#ecf0f1"
+        )
+        icon_v2.pack(side=tk.LEFT, padx=(0, 10))
+        
         tk.Label(
-            v2_section,
+            v2_header,
             text="⚙️ CONFIGURACIÓN V2",
             font=("Arial", 12, "bold"),
             bg="#ecf0f1",
             fg="#2c3e50"
-        ).pack(anchor=tk.W, pady=5)
+        ).pack(side=tk.LEFT)
         
         v2_frame = tk.Frame(v2_section, bg="#ecf0f1", pady=5)
         v2_frame.pack(fill=tk.X)
@@ -324,8 +466,27 @@ class EvidenciasApp:
             justify=tk.LEFT
         ).pack(side=tk.LEFT, padx=10)
         
+        # Configurar scroll para V2
+        canvas_v2.bind_all("<MouseWheel>", lambda e: canvas_v2.yview_scroll(int(-1*(e.delta/120)), "units") if self.notebook.index(self.notebook.select()) == 2 else None)
+        
+        # Pestaña 4: SALIDA Y EJECUCIÓN
+        tab_salida = tk.Frame(self.notebook, bg="#f5f5f5")
+        self.notebook.add(tab_salida, text="📁 SALIDA")
+        
+        # Canvas para scroll en pestaña SALIDA
+        canvas_salida = tk.Canvas(tab_salida, bg="#f5f5f5", highlightthickness=0)
+        scrollbar_salida = ttk.Scrollbar(tab_salida, orient="vertical", command=canvas_salida.yview)
+        scrollable_salida = tk.Frame(canvas_salida, bg="#f5f5f5")
+        
+        scrollable_salida.bind("<Configure>", lambda e: canvas_salida.configure(scrollregion=canvas_salida.bbox("all")))
+        canvas_salida.create_window((0, 0), window=scrollable_salida, anchor="nw")
+        canvas_salida.configure(yscrollcommand=scrollbar_salida.set)
+        
+        canvas_salida.pack(side="left", fill="both", expand=True)
+        scrollbar_salida.pack(side="right", fill="y")
+        
         # Carpeta de salida
-        salida_frame = tk.Frame(scrollable_frame, bg="#ecf0f1", pady=10, padx=10, relief=tk.RAISED, bd=2)
+        salida_frame = tk.Frame(scrollable_salida, bg="#ecf0f1", pady=10, padx=10, relief=tk.RAISED, bd=2)
         salida_frame.pack(fill=tk.X, pady=15)
         
         tk.Label(
@@ -358,8 +519,8 @@ class EvidenciasApp:
         self.nombre_carpeta_entry.insert(0, datetime.now().strftime("evidencias_%d-%m-%y"))
         
         # Botón ejecutar
-        ejecutar_frame = tk.Frame(scrollable_frame, bg="#f5f5f5", pady=20)
-        ejecutar_frame.pack(fill=tk.X)
+        ejecutar_frame = tk.Frame(scrollable_salida, bg="#f5f5f5", pady=20)
+        ejecutar_frame.pack(fill=tk.X, padx=20)
         
         self.ejecutar_btn = tk.Button(
             ejecutar_frame,
@@ -368,11 +529,11 @@ class EvidenciasApp:
             bg="#27ae60",
             fg="white",
             font=("Arial", 14, "bold"),
-            pady=10,
+            pady=15,
             cursor="hand2",
             state="disabled"
         )
-        self.ejecutar_btn.pack(side=tk.LEFT, padx=10)
+        self.ejecutar_btn.pack(pady=10)
         
         tk.Button(
             ejecutar_frame,
@@ -383,33 +544,40 @@ class EvidenciasApp:
             font=("Arial", 11, "bold"),
             pady=8,
             cursor="hand2"
-        ).pack(side=tk.LEFT, padx=10)
+        ).pack(pady=5)
         
-        # LOGS
-        logs_section = tk.Frame(scrollable_frame, bg="#ecf0f1", pady=10, padx=10, relief=tk.RAISED, bd=2)
-        logs_section.pack(fill=tk.BOTH, expand=True, pady=15)
+        # Configurar scroll para SALIDA
+        canvas_salida.bind_all("<MouseWheel>", lambda e: canvas_salida.yview_scroll(int(-1*(e.delta/120)), "units") if self.notebook.index(self.notebook.select()) == 3 else None)
+        
+        # Pestaña 5: LOGS Y AUDITOR (opcional, para mostrar logs también en principal)
+        tab_logs = tk.Frame(self.notebook, bg="#f5f5f5")
+        self.notebook.add(tab_logs, text="📋 LOGS")
+        
+        logs_section_frame = tk.Frame(tab_logs, bg="#ecf0f1", pady=10, padx=10, relief=tk.RAISED, bd=2)
+        logs_section_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         tk.Label(
-            logs_section,
+            logs_section_frame,
             text="📋 LOGS",
             font=("Arial", 12, "bold"),
             bg="#ecf0f1"
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 10))
         
+        # Widget de logs para ventana principal (visible en pestaña LOGS)
         self.logs_text = scrolledtext.ScrolledText(
-            logs_section,
-            height=10,
+            logs_section_frame,
+            height=20,
             font=("Consolas", 9),
             bg="#2c3e50",
             fg="#ecf0f1",
             wrap=tk.WORD
         )
-        self.logs_text.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.logs_text.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
         
-        # Progress bar
+        # Progress bar (oculto en principal, se usará en ventana de ejecución)
         self.progress_var = tk.DoubleVar()
         self.progress_bar = ttk.Progressbar(
-            logs_section,
+            logs_section_frame,
             variable=self.progress_var,
             maximum=100,
             length=400
@@ -418,7 +586,7 @@ class EvidenciasApp:
         
         # Botón auditor
         auditor_btn = tk.Button(
-            logs_section,
+            logs_section_frame,
             text="🔍 EJECUTAR AUDITOR",
             command=self.ejecutar_auditor,
             bg="#8e44ad",
@@ -429,8 +597,27 @@ class EvidenciasApp:
         )
         auditor_btn.pack(pady=10)
         
-        # Configurar canvas scrolling
-        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+        # Variables para ventana de ejecución
+        self.ejecucion_window = None
+        self.progress_label = None
+        self.logs_text_ejecucion = None
+        self._seccion_base_completa = False
+        self._seccion_gestiones_completa = False
+        
+        # Cache de DataFrames para optimización
+        self._df_cache = {}
+        self._column_cache = {}
+    
+    def verificar_seccion_gestiones_completa(self):
+        """Verifica si la sección GESTIONES está completa (tiene archivos mínimos)"""
+        # Al menos IVR debe tener audio (obligatorio)
+        tiene_minimo = self.ivr_base_audio is not None
+        
+        # Si tiene al menos el audio de IVR, considerar completa
+        if tiene_minimo and not hasattr(self, '_seccion_gestiones_completa'):
+            self._seccion_gestiones_completa = True
+            return True
+        return False
         
     def create_section(self, parent, title):
         frame = tk.Frame(parent, bg="#ecf0f1", relief=tk.RAISED, bd=2, pady=10, padx=10)
@@ -579,6 +766,12 @@ class EvidenciasApp:
                 if hasattr(self, 'nuevos_datos_frame'):
                     self.nuevos_datos_frame.update_selected(file_path)
                 self.log(f"✅ Nuevos datos cargados: {len(self.nuevos_datos_df)} registros")
+                
+                # Paginar a GESTIONES si BASE está completa
+                if hasattr(self, 'datos_fuente_df') and self.datos_fuente_df is not None:
+                    if not hasattr(self, '_seccion_base_completa'):
+                        self.notebook.select(1)  # Cambiar a pestaña GESTIONES
+                        self._seccion_base_completa = True
             except Exception as e:
                 messagebox.showerror("Error", f"Error al cargar archivo: {str(e)}")
     
@@ -699,6 +892,10 @@ class EvidenciasApp:
                 self.call_gestiones_frame.btn.config(text="✅ Seleccionado (IVR)", bg="#28a745", state="normal")
             
             self.log(f"✅ Archivo base IVR seleccionado: {os.path.basename(file_path)}")
+            
+            # Verificar si GESTIONES está completa y paginar a V2
+            if self.verificar_seccion_gestiones_completa():
+                self.notebook.select(2)  # Cambiar a pestaña V2
     
     def select_ivr_base_audio(self):
         file_path = filedialog.askopenfilename(
@@ -710,6 +907,10 @@ class EvidenciasApp:
             if hasattr(self, 'ivr_base_audio_frame'):
                 self.ivr_base_audio_frame.update_selected(file_path)
             self.log(f"✅ Audio base IVR seleccionado: {os.path.basename(file_path)}")
+            
+            # Verificar si GESTIONES está completa y paginar a V2
+            if self.verificar_seccion_gestiones_completa():
+                self.notebook.select(2)  # Cambiar a pestaña V2
         else:
             messagebox.showerror("Error", "Debe seleccionar un archivo MP3")
     
@@ -723,6 +924,10 @@ class EvidenciasApp:
             if hasattr(self, 'sms_base_excel_frame'):
                 self.sms_base_excel_frame.update_selected(file_path)
             self.log(f"✅ Archivo base SMS seleccionado: {os.path.basename(file_path)}")
+            
+            # Verificar si GESTIONES está completa y paginar a V2
+            if self.verificar_seccion_gestiones_completa():
+                self.notebook.select(2)  # Cambiar a pestaña V2
     
     def select_call_gestiones_excel(self):
         if self.ivr_use_for_call.get():
@@ -818,21 +1023,198 @@ class EvidenciasApp:
                 self.ejecutar_btn.config(state="normal")
             
             self.log(f"✅ Carpeta de salida seleccionada: {dir_path}")
+            
+            # Paginar automáticamente: si ya se seleccionó carpeta, mantener en SALIDA
+            # (el botón ejecutar ya habilita, no necesita paginar más)
     
     def log(self, message):
+        """Log a message to the appropriate logs widget"""
+        # Determinar qué widget(s) de logs usar
+        logs_widgets = [self.logs_text]  # Siempre escribir en la ventana principal
+        if hasattr(self, 'logs_text_ejecucion') and self.logs_text_ejecucion:
+            logs_widgets.append(self.logs_text_ejecucion)  # También en ventana de ejecución si existe
+        
+        # Optimización: solo actualizar UI ocasionalmente para mejorar rendimiento
         timestamp = datetime.now().strftime("%H:%M:%S")
-        self.logs_text.insert(tk.END, f"[{timestamp}] {message}\n")
-        self.logs_text.see(tk.END)
-        self.root.update()
+        for logs_widget in logs_widgets:
+            if logs_widget:
+                logs_widget.insert(tk.END, f"[{timestamp}] {message}\n")
+        
+        # Solo hacer scroll y update cada N mensajes para optimizar
+        if hasattr(self, '_log_count'):
+            self._log_count += 1
+        else:
+            self._log_count = 0
+        
+        if self._log_count % 5 == 0:  # Update cada 5 logs
+            for logs_widget in logs_widgets:
+                if logs_widget:
+                    logs_widget.see(tk.END)
+            # Actualizar la ventana correcta
+            window = self.ejecucion_window if hasattr(self, 'ejecucion_window') and self.ejecucion_window else self.root
+            window.update_idletasks()  # Usar update_idletasks en lugar de update para mejorar rendimiento
     
     def ejecutar_proceso(self):
         if not self.validar_datos():
             return
         
-        self.log("🚀 Iniciando proceso de generación de evidencias...")
-        self.ejecutar_btn.config(state="disabled")
+        # Crear ventana de ejecución
+        self.abrir_ventana_ejecucion()
+    
+    def abrir_ventana_ejecucion(self):
+        """Abre una nueva ventana solo con logs y progreso"""
+        # Crear nueva ventana
+        self.ejecucion_window = tk.Toplevel(self.root)
+        self.ejecucion_window.title("📋 Procesando Evidencias...")
+        self.ejecucion_window.geometry("900x600")
+        self.ejecucion_window.configure(bg="#2c3e50")
+        
+        # No permitir cerrar durante ejecución
+        self.ejecucion_window.protocol("WM_DELETE_WINDOW", lambda: None)
+        
+        # Header con decoración
+        header_frame = tk.Frame(self.ejecucion_window, bg="#2c3e50", pady=20)
+        header_frame.pack(fill=tk.X)
+        
+        # Frame interno para alinear
+        header_inner = tk.Frame(header_frame, bg="#2c3e50")
+        header_inner.pack()
+        
+        # Icono decorativo
+        icon_exec = tk.Label(
+            header_inner,
+            text="⚙️",
+            font=("Arial", 36),
+            bg="#2c3e50",
+            fg="white"
+        )
+        icon_exec.pack(side=tk.LEFT, padx=(0, 15))
+        
+        title_exec = tk.Label(
+            header_inner,
+            text="PROCESANDO EVIDENCIAS",
+            font=("Arial", 20, "bold"),
+            bg="#2c3e50",
+            fg="white"
+        )
+        title_exec.pack(side=tk.LEFT)
+        
+        # Subtítulo
+        subtitle_exec = tk.Label(
+            header_frame,
+            text="Generando documentación y archivos de evidencia...",
+            font=("Arial", 10),
+            bg="#2c3e50",
+            fg="#ecf0f1"
+        )
+        subtitle_exec.pack(pady=(5, 0))
+        
+        # Frame principal
+        main_exec_frame = tk.Frame(self.ejecucion_window, bg="#34495e")
+        main_exec_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Logs
+        logs_label = tk.Label(
+            main_exec_frame,
+            text="📋 LOGS",
+            font=("Arial", 14, "bold"),
+            bg="#34495e",
+            fg="white"
+        )
+        logs_label.pack(anchor=tk.W, pady=(0, 10))
+        
+        # Crear nuevo widget de logs para ventana de ejecución
+        self.logs_text_ejecucion = scrolledtext.ScrolledText(
+            main_exec_frame,
+            height=20,
+            font=("Consolas", 10),
+            bg="#2c3e50",
+            fg="#ecf0f1",
+            wrap=tk.WORD
+        )
+        self.logs_text_ejecucion.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+        
+        # Progress bar
+        progress_frame = tk.Frame(main_exec_frame, bg="#34495e")
+        progress_frame.pack(fill=tk.X, pady=10)
+        
+        tk.Label(
+            progress_frame,
+            text="Progreso:",
+            font=("Arial", 11, "bold"),
+            bg="#34495e",
+            fg="white"
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.progress_var = tk.DoubleVar()
+        self.progress_bar_ejecucion = ttk.Progressbar(
+            progress_frame,
+            variable=self.progress_var,
+            maximum=100,
+            length=600
+        )
+        self.progress_bar_ejecucion.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
+        self.progress_label = tk.Label(
+            progress_frame,
+            text="0%",
+            font=("Arial", 11, "bold"),
+            bg="#34495e",
+            fg="white",
+            width=5
+        )
+        self.progress_label.pack(side=tk.LEFT)
+        
+        # Botón cancelar (para futuro)
+        btn_frame = tk.Frame(main_exec_frame, bg="#34495e")
+        btn_frame.pack(fill=tk.X, pady=10)
+        
+        # Iniciar procesamiento en hilo separado
+        import threading
+        thread = threading.Thread(target=self.ejecutar_proceso_background, daemon=True)
+        thread.start()
+    
+    def ejecutar_proceso_background(self):
+        """Ejecuta el proceso en background y actualiza la ventana de ejecución"""
+        # Limpiar logs en la ventana de ejecución
+        self.logs_text_ejecucion.delete(1.0, tk.END)
+        
+        self.progress_var.set(0)
+        
+        # Limpiar registro de archivos no creados y cache
+        self.archivos_no_creados = {
+            "ivr_sin_match": [],
+            "sms_sin_match": [],
+            "call_sin_match": [],
+            "ivr_sin_audio": [],
+            "call_sin_audio": [],
+            "carpetas_vacias": []
+        }
+        self._df_cache.clear()
+        self._column_cache.clear()
         
         try:
+            # Pre-cargar todos los DataFrames necesarios (optimización)
+            self.log("📦 Precargando archivos Excel...")
+            if self.ivr_base_excel and os.path.exists(self.ivr_base_excel):
+                self._df_cache['ivr'] = pd.read_excel(self.ivr_base_excel)
+            if self.sms_base_excel and os.path.exists(self.sms_base_excel):
+                self._df_cache['sms'] = pd.read_excel(self.sms_base_excel)
+            if self.call_consolidado_excel and os.path.exists(self.call_consolidado_excel):
+                self._df_cache['call'] = pd.read_excel(self.call_consolidado_excel)
+            
+            # Pre-cargar archivos de gestiones si son diferentes
+            archivo_gestiones = None
+            if self.ivr_use_for_call.get() and self.ivr_base_excel:
+                archivo_gestiones = self.ivr_base_excel
+            elif self.call_gestiones_excel:
+                archivo_gestiones = self.call_gestiones_excel
+            
+            if archivo_gestiones and os.path.exists(archivo_gestiones):
+                self._df_cache['gestiones'] = pd.read_excel(archivo_gestiones)
+            
+            self.log("✅ Archivos precargados correctamente")
+            
             # Crear carpeta principal
             if hasattr(self, 'nombre_carpeta_entry') and self.nombre_carpeta_entry.get():
                 nombre_carpeta = self.nombre_carpeta_entry.get()
@@ -842,29 +1224,56 @@ class EvidenciasApp:
             carpeta_principal = os.path.join(self.carpeta_salida_path, nombre_carpeta)
             os.makedirs(carpeta_principal, exist_ok=True)
             
-            self.log(f"📁 Carpeta principal creada: {carpeta_principal}")
-            
             total = len(self.datos_fuente_df)
+            update_interval = max(1, total // 20)  # Actualizar cada ~5%
             
             for idx, cliente_row in self.datos_fuente_df.iterrows():
                 try:
                     self.procesar_cliente(cliente_row, carpeta_principal)
                     progress = ((idx + 1) / total) * 100
                     self.progress_var.set(progress)
-                    if (idx + 1) % 10 == 0:  # Log cada 10 clientes
-                        self.log(f"Procesado {idx + 1}/{total} - {progress:.1f}%")
-                    self.root.update()
+                    
+                    # Mostrar avance solo cada intervalo o al final
+                    if (idx + 1) % update_interval == 0 or (idx + 1) == total:
+                        self.progress_label.config(text=f"{progress:.0f}%")
+                        barra = "|" * int(progress / 10) + "." * (10 - int(progress / 10))
+                        self.log(f"AVANCE: {barra} {progress:.0f}%")
+                        self.ejecucion_window.update_idletasks()  # Actualizar UI solo ocasionalmente
                 except Exception as e:
-                    self.log(f"❌ Error procesando cliente {idx + 1}: {str(e)}")
+                    pass
             
             self.progress_var.set(100)
+            self.progress_label.config(text="100%")
             self.log("✅ Proceso completado exitosamente")
-            messagebox.showinfo("Éxito", f"Proceso completado exitosamente.\nTotal de carpetas creadas: {total}")
+            
+            # Mostrar botón de cerrar
+            btn_cerrar = tk.Button(
+                self.ejecucion_window,
+                text="✅ Cerrar",
+                command=self.cerrar_ventana_ejecucion,
+                bg="#27ae60",
+                fg="white",
+                font=("Arial", 12, "bold"),
+                pady=10,
+                cursor="hand2"
+            )
+            btn_cerrar.pack(pady=20)
+            
+            messagebox.showinfo("Éxito", f"Proceso completado exitosamente.\nTotal de carpetas creadas: {total}", parent=self.ejecucion_window)
             
         except Exception as e:
             self.log(f"❌ Error en el proceso: {str(e)}")
-            messagebox.showerror("Error", f"Error en el proceso: {str(e)}")
+            messagebox.showerror("Error", f"Error en el proceso: {str(e)}", parent=self.ejecucion_window)
+        
         finally:
+            # Permitir cerrar ventana
+            self.ejecucion_window.protocol("WM_DELETE_WINDOW", self.cerrar_ventana_ejecucion)
+    
+    def cerrar_ventana_ejecucion(self):
+        """Cierra la ventana de ejecución"""
+        if self.ejecucion_window:
+            self.ejecucion_window.destroy()
+            self.ejecucion_window = None
             self.ejecutar_btn.config(state="normal")
     
     def validar_datos(self):
@@ -896,9 +1305,9 @@ class EvidenciasApp:
         carpeta_cliente = os.path.join(carpeta_principal, nombre_carpeta_cliente)
         os.makedirs(carpeta_cliente, exist_ok=True)
         
-        # Debug: Log de gestiones para este cliente
+        # Log de cliente y gestiones
         gestiones_str = ', '.join(gestiones) if gestiones else 'NINGUNA'
-        self.log(f"  🔍 Cliente: {nombre_cliente} | Gestiones: {gestiones_str}")
+        self.log(f"->[{nombre_cliente}]: [{gestiones_str}]")
         
         # Orden de procesamiento: IVR → SMS → CALL (sin importar el orden original)
         orden_procesamiento = ["IVR", "SMS", "CALL"]
@@ -914,8 +1323,8 @@ class EvidenciasApp:
                     elif gestion_ordenada == "CALL":
                         self.procesar_call(cliente_row, carpeta_cliente, nombre_cliente, cuenta_cliente)
                 except Exception as e:
-                    self.log(f"  ❌ Error procesando gestión {gestion_ordenada} para {nombre_cliente}: {str(e)}")
-                    # Continuar con la siguiente gestión sin detener el proceso
+                    # Error crítico, pero continuar
+                    pass
     
     def obtener_gestiones_v2(self, cuenta_cliente, gestiones_actuales):
         """Combina gestiones de datos_fuente y nuevos_datos eliminando duplicados"""
@@ -990,297 +1399,239 @@ class EvidenciasApp:
         return todas_gestiones
     
     def procesar_ivr(self, cliente_row, carpeta_cliente, nombre_cliente):
-        self.log(f"  🎯 IVR: Iniciando procesamiento para {nombre_cliente}")
+        archivos_creados = []
         
         # El archivo MP3 es OBLIGATORIO si hay gestión IVR
         if not self.ivr_base_audio:
-            self.log(f"  ⚠️ IVR: Audio base NO seleccionado para {nombre_cliente} - NO SE CREARÁ MP3 OBLIGATORIO")
-            # Continuar intentando crear el Excel aunque no haya audio
+            self.archivos_no_creados["ivr_sin_audio"].append(nombre_cliente)
         else:
-            # Copiar audio OBLIGATORIO (siempre se crea si hay gestión IVR)
+            # Copiar audio OBLIGATORIO
             try:
                 nombre_audio = f"ivr_{self.sanitize_filename(nombre_cliente)}.mp3"
                 archivo_audio = os.path.join(carpeta_cliente, nombre_audio)
                 
                 if os.path.exists(self.ivr_base_audio):
                     shutil.copy2(self.ivr_base_audio, archivo_audio)
-                    self.log(f"  ✅ IVR audio MP3 creado (OBLIGATORIO): {nombre_cliente} → {nombre_audio}")
-                else:
-                    self.log(f"  ⚠️ IVR: Audio base no existe en ruta '{self.ivr_base_audio}' - NO SE CREARÁ MP3")
-            except Exception as e:
-                self.log(f"  ⚠️ Error copiando audio IVR para {nombre_cliente}: {str(e)}")
+                    archivos_creados.append("mp3")
+            except:
+                self.archivos_no_creados["ivr_sin_audio"].append(nombre_cliente)
         
-        # Procesar Excel (opcional, solo si hay archivo base)
-        if not self.ivr_base_excel:
-            self.log(f"  ⚠️ IVR: Archivo base Excel no seleccionado para {nombre_cliente} - Solo se creó el MP3")
-            return
-        
-        try:
-            # Leer archivo base IVR
-            df_ivr = pd.read_excel(self.ivr_base_excel)
-            
-            # Buscar cliente por match
-            match_cliente_col = self.ivr_match_cliente_combo.get()
-            match_archivo_col = self.ivr_match_archivo_combo.get()
-            
-            cuenta_cliente = str(cliente_row.get(match_cliente_col, "")).strip()
-            
-            # Verificar que la columna existe
-            if match_archivo_col not in df_ivr.columns:
-                self.log(f"  ⚠️ Error de match IVR Excel para {nombre_cliente}: Columna '{match_archivo_col}' no encontrada en archivo base")
-                return
-            
-            # Filtrar cliente
-            cliente_data = df_ivr[df_ivr[match_archivo_col].astype(str).str.strip() == cuenta_cliente]
-            
-            # Filtrar por GESTION EFECTIVA = IVR
-            gestion_col = None
-            for col in cliente_data.columns:
-                if "GESTION EFECTIVA" in str(col).upper():
-                    gestion_col = col
-                    break
-            
-            if gestion_col:
-                cliente_data = cliente_data[cliente_data[gestion_col].astype(str).str.contains("IVR", case=False, na=False)]
-            
-            if len(cliente_data) > 0:
+            # Procesar Excel (opcional, solo si hay archivo base) - Usar cache
+            excel_creado = False
+            if self.ivr_base_excel and 'ivr' in self._df_cache:
                 try:
-                    # Agregar campo TIPO DE GESTION
-                    cliente_data = cliente_data.copy()
-                    cliente_data["TIPO DE GESTION"] = "IVR"
+                    df_ivr = self._df_cache['ivr']  # Usar DataFrame cacheado
+                    match_cliente_col = self.ivr_match_cliente_combo.get()
+                    match_archivo_col = self.ivr_match_archivo_combo.get()
+                    cuenta_cliente = str(cliente_row.get(match_cliente_col, "")).strip()
                     
-                    # Guardar Excel
-                    nombre_archivo = f"{self.sanitize_filename(nombre_cliente)}_ivr.xlsx"
-                    archivo_excel = os.path.join(carpeta_cliente, nombre_archivo)
-                    cliente_data.to_excel(archivo_excel, index=False)
-                    
-                    self.log(f"  ✅ IVR Excel creado: {nombre_cliente}")
-                except Exception as e:
-                    self.log(f"  ⚠️ Error creando Excel IVR para {nombre_cliente}: {str(e)}")
-            else:
-                self.log(f"  ⚠️ Error de match IVR Excel para {nombre_cliente}: No se encontró en archivo base con {match_cliente_col}={cuenta_cliente}")
+                    if match_archivo_col in df_ivr.columns:
+                        cliente_data = df_ivr[df_ivr[match_archivo_col].astype(str).str.strip() == cuenta_cliente]
+                        
+                        # Cachear búsqueda de columna GESTION EFECTIVA
+                        cache_key = 'ivr_gestion_col'
+                        if cache_key not in self._column_cache:
+                            gestion_col = None
+                            for col in df_ivr.columns:
+                                if "GESTION EFECTIVA" in str(col).upper():
+                                    gestion_col = col
+                                    break
+                            self._column_cache[cache_key] = gestion_col
+                        gestion_col = self._column_cache[cache_key]
+                        
+                        if gestion_col:
+                            cliente_data = cliente_data[cliente_data[gestion_col].astype(str).str.contains("IVR", case=False, na=False)]
+                        
+                        if len(cliente_data) > 0:
+                            cliente_data = cliente_data.copy()
+                            cliente_data["TIPO DE GESTION"] = "IVR"
+                            nombre_archivo = f"{self.sanitize_filename(nombre_cliente)}_ivr.xlsx"
+                            archivo_excel = os.path.join(carpeta_cliente, nombre_archivo)
+                            cliente_data.to_excel(archivo_excel, index=False)
+                            excel_creado = True
+                            archivos_creados.append("xlsx")
+                except:
+                    pass
         
-        except Exception as e:
-            self.log(f"  ❌ Error procesando Excel IVR para {nombre_cliente}: {str(e)}")
+        # Log resumido
+        if len(archivos_creados) == 2:
+            self.log(f"  ->IVR: 2 archivos creados (xlsx, mp3)")
+        elif len(archivos_creados) == 1 and "mp3" in archivos_creados:
+            self.log(f"  ->IVR: 1 archivo creado (mp3)")
+        elif not excel_creado and self.ivr_base_excel:
+            self.log(f"  ->IVR: Sin match en archivo base")
+            self.archivos_no_creados["ivr_sin_match"].append(nombre_cliente)
+        else:
+            self.log(f"  ->IVR: 1 archivo creado (xlsx)")
     
     def procesar_sms(self, cliente_row, carpeta_cliente, nombre_cliente):
-        if not self.sms_base_excel:
-            self.log(f"  ⚠️ SMS: Archivo base no seleccionado para {nombre_cliente}")
+        if not self.sms_base_excel or 'sms' not in self._df_cache:
             return
         
         try:
-            # Leer archivo base SMS
-            df_sms = pd.read_excel(self.sms_base_excel)
-            
-            # Buscar cliente por match
+            df_sms = self._df_cache['sms']  # Usar DataFrame cacheado
             match_cliente_col = self.sms_match_cliente_combo.get()
             match_archivo_col = self.sms_match_archivo_combo.get()
-            
             valor_cliente = str(cliente_row.get(match_cliente_col, "")).strip()
             
-            # Verificar que la columna existe
-            if match_archivo_col not in df_sms.columns:
-                self.log(f"  ⚠️ Error de match SMS para {nombre_cliente}: Columna '{match_archivo_col}' no encontrada en archivo base")
-                return
-            
-            # Filtrar cliente
-            cliente_data = df_sms[df_sms[match_archivo_col].astype(str).str.strip() == valor_cliente]
-            
-            if len(cliente_data) > 0:
-                # Guardar Excel
-                nombre_archivo = f"SMS_{self.sanitize_filename(nombre_cliente)}.xlsx"
-                archivo_excel = os.path.join(carpeta_cliente, nombre_archivo)
-                cliente_data.to_excel(archivo_excel, index=False)
+            if match_archivo_col in df_sms.columns:
+                cliente_data = df_sms[df_sms[match_archivo_col].astype(str).str.strip() == valor_cliente]
                 
-                self.log(f"  ✅ SMS procesado: {nombre_cliente}")
-            else:
-                self.log(f"  ⚠️ Error de match SMS para {nombre_cliente}: No se encontró en archivo base con {match_cliente_col}={valor_cliente}")
-        
-        except Exception as e:
-            self.log(f"  ❌ Error procesando SMS para {nombre_cliente}: {str(e)}")
+                if len(cliente_data) > 0:
+                    nombre_archivo = f"SMS_{self.sanitize_filename(nombre_cliente)}.xlsx"
+                    archivo_excel = os.path.join(carpeta_cliente, nombre_archivo)
+                    cliente_data.to_excel(archivo_excel, index=False)
+                    self.log(f"  ->SMS: Archivo creado")
+                    return
+            
+            self.log(f"  ->SMS: Sin match en archivo base")
+            self.archivos_no_creados["sms_sin_match"].append(nombre_cliente)
+        except:
+            self.archivos_no_creados["sms_sin_match"].append(nombre_cliente)
     
     def procesar_call(self, cliente_row, carpeta_cliente, nombre_cliente, cuenta_cliente):
-        self.log(f"  🎯 CALL: Iniciando procesamiento para {nombre_cliente}")
-        
-        # Verificar primero si tenemos el archivo consolidado (esto es LO MÁS IMPORTANTE)
-        if not self.call_consolidado_excel:
-            self.log(f"  ⚠️ CALL: Archivo consolidado NO seleccionado para {nombre_cliente} - NO SE PROCESARÁ AUDIO")
-            return
-        
-        # Obtener datos del cliente
         cuenta_valor = str(cliente_row.get("CUENTA", "")).strip()
         telefono_cliente = str(cliente_row.get("TELEFONO", "")).strip()
+        archivos_creados = []
         
-        self.log(f"  📞 CALL: Cliente {nombre_cliente} - CUENTA: {cuenta_valor}, TELEFONO: {telefono_cliente}")
+        # Verificar si tenemos el archivo consolidado
+        if not self.call_consolidado_excel:
+            return
         
-        # Intentar crear Excel de gestiones (pero si falla, continuar de todos modos)
+        # Intentar crear Excel de gestiones (opcional)
+        excel_creado = False
         archivo_gestiones = None
         if self.ivr_use_for_call.get() and self.ivr_base_excel:
             archivo_gestiones = self.ivr_base_excel
         elif self.call_gestiones_excel:
             archivo_gestiones = self.call_gestiones_excel
         
-        if archivo_gestiones:
+        if archivo_gestiones and 'gestiones' in self._df_cache:
             try:
-                # Leer archivo de gestiones
-                df_gestiones = pd.read_excel(archivo_gestiones)
+                df_gestiones = self._df_cache['gestiones']  # Usar DataFrame cacheado
                 
-                # Buscar cliente por CUENTA
-                cuenta_col_name = None
-                for col in df_gestiones.columns:
-                    if "CUENTA" in str(col).upper():
-                        cuenta_col_name = col
-                        break
+                # Cachear búsqueda de columna CUENTA
+                cache_key_cuenta = 'gestiones_cuenta_col'
+                if cache_key_cuenta not in self._column_cache:
+                    cuenta_col_name = None
+                    for col in df_gestiones.columns:
+                        if "CUENTA" in str(col).upper():
+                            cuenta_col_name = col
+                            break
+                    self._column_cache[cache_key_cuenta] = cuenta_col_name
+                cuenta_col_name = self._column_cache[cache_key_cuenta]
                 
                 if cuenta_col_name:
-                    # Filtrar cliente
                     cliente_data = df_gestiones[df_gestiones[cuenta_col_name].astype(str).str.strip() == cuenta_valor]
                     
-                    # Filtrar por GESTION EFECTIVA = CALL
-                    gestion_col = None
-                    for col in cliente_data.columns:
-                        if "GESTION EFECTIVA" in str(col).upper():
-                            gestion_col = col
-                            break
+                    # Cachear búsqueda de columna GESTION EFECTIVA
+                    cache_key_gestion = 'gestiones_gestion_col'
+                    if cache_key_gestion not in self._column_cache:
+                        gestion_col = None
+                        for col in df_gestiones.columns:
+                            if "GESTION EFECTIVA" in str(col).upper():
+                                gestion_col = col
+                                break
+                        self._column_cache[cache_key_gestion] = gestion_col
+                    gestion_col = self._column_cache[cache_key_gestion]
                     
                     if gestion_col:
                         cliente_data = cliente_data[cliente_data[gestion_col].astype(str).str.contains("CALL", case=False, na=False)]
                     
                     if len(cliente_data) > 0:
-                        try:
-                            # Agregar campo TIPO DE GESTION
-                            cliente_data = cliente_data.copy()
-                            cliente_data["TIPO DE GESTION"] = "CALL"
-                            
-                            # Guardar Excel de gestiones
-                            nombre_archivo = f"{self.sanitize_filename(nombre_cliente)}_gestiones.xlsx"
-                            archivo_excel = os.path.join(carpeta_cliente, nombre_archivo)
-                            cliente_data.to_excel(archivo_excel, index=False)
-                            self.log(f"  ✅ CALL gestiones Excel creado: {nombre_cliente}")
-                        except Exception as e:
-                            self.log(f"  ⚠️ Error creando Excel de gestiones CALL para {nombre_cliente}: {str(e)} - Continuando con audio...")
-            except Exception as e:
-                self.log(f"  ⚠️ Error procesando gestiones CALL para {nombre_cliente}: {str(e)} - Continuando con audio...")
+                        cliente_data = cliente_data.copy()
+                        cliente_data["TIPO DE GESTION"] = "CALL"
+                        nombre_archivo = f"{self.sanitize_filename(nombre_cliente)}_gestiones.xlsx"
+                        archivo_excel = os.path.join(carpeta_cliente, nombre_archivo)
+                        cliente_data.to_excel(archivo_excel, index=False)
+                        excel_creado = True
+                        archivos_creados.append("xlsx")
+            except:
+                pass
         
-        # PROCESAR AUDIO (ESTO ES LO MÁS IMPORTANTE - SIEMPRE SE EJECUTA SI HAY ARCHIVO CONSOLIDADO)
+        # PROCESAR AUDIO (OBLIGATORIO) - Usar cache
         if not telefono_cliente:
-            self.log(f"  ⚠️ CALL: Cliente {nombre_cliente} NO tiene teléfono - No se puede buscar audio")
+            self.archivos_no_creados["call_sin_audio"].append(nombre_cliente)
             return
         
         try:
-            self.log(f"  🔍 CALL: Buscando audio para {nombre_cliente} (teléfono: {telefono_cliente})")
+            if 'call' not in self._df_cache:
+                return
+            df_call = self._df_cache['call']  # Usar DataFrame cacheado
             
-            # Leer archivo consolidado
-            df_call = pd.read_excel(self.call_consolidado_excel)
-            self.log(f"  📊 CALL: Archivo consolidado cargado - {len(df_call)} registros")
-            self.log(f"  📋 CALL: Columnas disponibles: {', '.join(df_call.columns.tolist())}")
-            
-            # Buscar columna numero_celular (case-insensitive, con o sin guión bajo/espacio)
-            numero_col = None
-            ruta_col = None
-            
-            # Primero buscar exacto (numero_celular o numero celular) - SIN ESPACIOS NI GUIONES
-            for col in df_call.columns:
-                col_clean = str(col).strip().upper().replace("_", "").replace("-", "").replace(" ", "")
-                if col_clean == "NUMEROCELULAR":
-                    numero_col = col
-                    break
-            
-            # Si no se encuentra, buscar que contenga "NUMERO" y "CELULAR"
-            if not numero_col:
+            # Cachear búsqueda de columnas (solo una vez)
+            if 'call_numero_col' not in self._column_cache:
+                numero_col = None
+                ruta_col = None
+                
+                # Buscar columna numero_celular
                 for col in df_call.columns:
-                    col_upper = str(col).upper()
-                    if "NUMERO" in col_upper and "CELULAR" in col_upper:
+                    col_clean = str(col).strip().upper().replace("_", "").replace("-", "").replace(" ", "")
+                    if col_clean == "NUMEROCELULAR":
                         numero_col = col
                         break
-            
-            # Buscar columna ruta (PRIMERO BUSCAR EXACTO EN MINÚSCULAS)
-            for col in df_call.columns:
-                if str(col).strip().lower() == "ruta":  # BUSCAR EXACTO EN MINÚSCULAS PRIMERO
-                    ruta_col = col
-                    break
-            
-            # Si no se encuentra en minúsculas, buscar case-insensitive
-            if not ruta_col:
+                
+                if not numero_col:
+                    for col in df_call.columns:
+                        col_upper = str(col).upper()
+                        if "NUMERO" in col_upper and "CELULAR" in col_upper:
+                            numero_col = col
+                            break
+                
+                # Buscar columna ruta
                 for col in df_call.columns:
-                    col_upper = str(col).strip().upper()
-                    if col_upper == "RUTA":
+                    if str(col).strip().lower() == "ruta":
                         ruta_col = col
                         break
-            
-            self.log(f"  🔍 CALL: Columnas encontradas - numero_celular: '{numero_col}', ruta: '{ruta_col}'")
-            
-            if not numero_col:
-                self.log(f"  ❌ CALL: NO se encontró columna numero_celular en archivo consolidado")
-                cols_disponibles = ", ".join(df_call.columns)
-                self.log(f"     Columnas disponibles: {cols_disponibles}")
-                return
-            
-            if not ruta_col:
-                self.log(f"  ❌ CALL: NO se encontró columna 'ruta' en archivo consolidado")
-                cols_disponibles = ", ".join(df_call.columns)
-                self.log(f"     Columnas disponibles: {cols_disponibles}")
-                return
-            
-            # Hacer match con numero_celular (normalizar ambos lados)
-            df_call[numero_col] = df_call[numero_col].astype(str).str.strip()
-            audio_match = df_call[df_call[numero_col] == telefono_cliente]
-            
-            self.log(f"  🔍 CALL: Búsqueda realizada con teléfono '{telefono_cliente}' - Encontradas {len(audio_match)} coincidencias")
-            
-            if len(audio_match) == 0:
-                # Mostrar valores de ejemplo para debug
-                valores_ejemplo = df_call[numero_col].head(10).tolist()
-                self.log(f"  ⚠️ CALL: NO se encontró match para teléfono '{telefono_cliente}' en reporte consolidado (cliente: {nombre_cliente})")
-                self.log(f"     Columna usada para match: '{numero_col}'")
-                self.log(f"     Valores ejemplo en columna '{numero_col}': {valores_ejemplo}")
-                self.log(f"     Teléfono buscado: '{telefono_cliente}' (tipo: {type(telefono_cliente)})")
-                return
-            
-            # Tomar la primera coincidencia
-            ruta_audio = str(audio_match.iloc[0][ruta_col]).strip()
-            
-            # Limpiar la ruta (puede tener espacios o caracteres especiales)
-            ruta_audio = ruta_audio.replace('"', '').replace("'", "").strip()
-            
-            self.log(f"  📁 CALL: RUTA ENCONTRADA para {nombre_cliente}: '{ruta_audio}'")
-            
-            if not ruta_audio or ruta_audio.upper() in ["NAN", "NONE", ""]:
-                self.log(f"  ⚠️ CALL: Ruta de audio vacía o inválida para {nombre_cliente}")
-                self.log(f"     Valor en campo 'ruta': '{ruta_audio}'")
-                return
-            
-            # Verificar si el archivo existe en la ruta especificada
-            archivo_existe = os.path.exists(ruta_audio)
-            self.log(f"  📂 CALL: Verificando existencia - Ruta: '{ruta_audio}' | Existe: {archivo_existe}")
-            
-            if not archivo_existe:
-                # Mostrar información de debug
-                dir_padre = os.path.dirname(ruta_audio)
-                self.log(f"  ⚠️ CALL: Audio NO encontrado en ruta para {nombre_cliente}")
-                self.log(f"     Ruta buscada: '{ruta_audio}'")
-                self.log(f"     Directorio padre: '{dir_padre}'")
-                self.log(f"     Directorio padre existe: {os.path.exists(dir_padre) if dir_padre else 'N/A'}")
-                return
-            
-            # Copiar el archivo a la carpeta del cliente
-            nombre_audio = f"{self.sanitize_filename(nombre_cliente)}_{cuenta_valor}.mp3"
-            archivo_audio_destino = os.path.join(carpeta_cliente, nombre_audio)
-            
-            self.log(f"  📋 CALL: Copiando archivo - Origen: '{ruta_audio}' | Destino: '{archivo_audio_destino}'")
-            
-            try:
-                shutil.copy2(ruta_audio, archivo_audio_destino)
-                self.log(f"  ✅ CALL audio copiado exitosamente: {nombre_cliente} → {nombre_audio}")
-            except Exception as e:
-                self.log(f"  ⚠️ Error copiando audio CALL para {nombre_cliente}: {str(e)}")
-                import traceback
-                self.log(f"     Traceback: {traceback.format_exc()}")
                 
-        except Exception as e:
-            self.log(f"  ❌ Error procesando audio CALL para {nombre_cliente}: {str(e)}")
-            import traceback
-            self.log(f"     Traceback: {traceback.format_exc()}")
+                if not ruta_col:
+                    for col in df_call.columns:
+                        col_upper = str(col).strip().upper()
+                        if col_upper == "RUTA":
+                            ruta_col = col
+                            break
+                
+                self._column_cache['call_numero_col'] = numero_col
+                self._column_cache['call_ruta_col'] = ruta_col
+                
+                # Preprocesar: convertir a string una sola vez
+                if numero_col:
+                    df_call[numero_col] = df_call[numero_col].astype(str).str.strip()
+            
+            numero_col = self._column_cache.get('call_numero_col')
+            ruta_col = self._column_cache.get('call_ruta_col')
+            
+            if numero_col and ruta_col:
+                audio_match = df_call[df_call[numero_col] == telefono_cliente]
+                
+                if len(audio_match) > 0:
+                    ruta_audio = str(audio_match.iloc[0][ruta_col]).strip().replace('"', '').replace("'", "").strip()
+                    
+                    if ruta_audio and ruta_audio.upper() not in ["NAN", "NONE", ""] and os.path.exists(ruta_audio):
+                        nombre_audio = f"{self.sanitize_filename(nombre_cliente)}_{cuenta_valor}.mp3"
+                        archivo_audio_destino = os.path.join(carpeta_cliente, nombre_audio)
+                        shutil.copy2(ruta_audio, archivo_audio_destino)
+                        archivos_creados.append("mp3")
+                    else:
+                        self.archivos_no_creados["call_sin_audio"].append(nombre_cliente)
+                else:
+                    # Sin match en numero_celular - SÍ se debe mostrar
+                    self.archivos_no_creados["call_sin_match"].append(nombre_cliente)
+        except:
+            self.archivos_no_creados["call_sin_audio"].append(nombre_cliente)
+        
+        # Log resumido
+        if len(archivos_creados) == 2:
+            self.log(f"  ->CALL: 2 archivos creados (xlsx, mp3)")
+        elif len(archivos_creados) == 1 and "mp3" in archivos_creados:
+            self.log(f"  ->CALL: 1 archivo creado (mp3)")
+        elif not telefono_cliente or len(archivos_creados) == 0:
+            if nombre_cliente in self.archivos_no_creados["call_sin_match"]:
+                self.log(f"  ->CALL: Sin match en numero_celular")
+            else:
+                self.log(f"  ->CALL: Sin match en archivo base")
+                if archivo_gestiones:
+                    self.archivos_no_creados["call_sin_match"].append(nombre_cliente)
     
     def buscar_audio_fisico(self, ruta_relativa):
         """Busca el audio físico en la carpeta de audios"""
@@ -1639,27 +1990,48 @@ class EvidenciasApp:
                 errores = []
                 archivos_faltantes = []
                 
-                # Verificar según gestiones esperadas
+                # Obtener nombre del cliente desde la carpeta
+                nombre_cliente_desde_carpeta = carpeta_cliente.split("_")[0] if "_" in carpeta_cliente else carpeta_cliente
+                
+                # Verificar según gestiones esperadas (omitir archivos no creados por falta de match)
                 if "IVR" in gestiones_esperadas:
-                    if not tiene_ivr_excel:
+                    # Excel IVR: omitir si está en ivr_sin_match
+                    if not tiene_ivr_excel and nombre_cliente_desde_carpeta not in self.archivos_no_creados.get("ivr_sin_match", []):
                         errores.append("Falta Excel IVR")
                         archivos_faltantes.append("Archivo Excel IVR")
-                    if not tiene_ivr_audio:
-                        errores.append("Falta audio IVR")
+                    
+                    # Audio IVR: SIEMPRE debe estar (es obligatorio), omitir solo si está en ivr_sin_audio
+                    if not tiene_ivr_audio and nombre_cliente_desde_carpeta not in self.archivos_no_creados.get("ivr_sin_audio", []):
+                        errores.append("Falta audio IVR (OBLIGATORIO)")
                         archivos_faltantes.append("Audio MP3 IVR")
                 
                 if "SMS" in gestiones_esperadas:
-                    if not tiene_sms:
+                    # SMS: omitir si está en sms_sin_match
+                    if not tiene_sms and nombre_cliente_desde_carpeta not in self.archivos_no_creados.get("sms_sin_match", []):
                         errores.append("Falta Excel SMS")
                         archivos_faltantes.append("Archivo Excel SMS")
                 
                 if "CALL" in gestiones_esperadas:
-                    if not tiene_call_excel:
-                        errores.append("Falta Excel CALL")
-                        archivos_faltantes.append("Archivo Excel gestiones")
+                    # Excel CALL: omitir si está en call_sin_match (por falta de match en gestiones.xlsx)
+                    # Pero SÍ mostrar si es por falta de match en numero_celular (ese sí se debe mostrar)
+                    tiene_match_numero_celular = nombre_cliente_desde_carpeta in self.archivos_no_creados.get("call_sin_match", [])
+                    
+                    if not tiene_call_excel and not tiene_match_numero_celular:
+                        # Solo mostrar error si no es por falta de match en gestiones.xlsx
+                        # (no tenemos forma directa de saber esto, pero call_sin_match puede incluir ambos casos)
+                        # Por ahora, mostramos el error si no tiene Excel y no está en call_sin_match
+                        if nombre_cliente_desde_carpeta not in self.archivos_no_creados.get("call_sin_match", []):
+                            errores.append("Falta Excel CALL")
+                            archivos_faltantes.append("Archivo Excel gestiones")
+                    
+                    # Audio CALL: mostrar si no tiene (aunque esté en call_sin_match, eso es diferente)
                     if not tiene_call_audio:
-                        errores.append("Falta audio CALL")
-                        archivos_faltantes.append("Audio MP3 CALL")
+                        if tiene_match_numero_celular:
+                            errores.append("Falta audio CALL (Sin match en numero_celular)")
+                            archivos_faltantes.append("Audio MP3 CALL")
+                        elif nombre_cliente_desde_carpeta not in self.archivos_no_creados.get("call_sin_audio", []):
+                            errores.append("Falta audio CALL")
+                            archivos_faltantes.append("Audio MP3 CALL")
                 
                 # Verificar cantidad total de archivos
                 num_archivos_esperados = len(archivos_esperados)
@@ -1667,8 +2039,18 @@ class EvidenciasApp:
                     if len(archivos) < num_archivos_esperados:
                         errores.append(f"Faltan archivos: esperados {num_archivos_esperados}, encontrados {len(archivos)}")
                 
+                # Detectar carpetas vacías (siempre se muestra)
                 if len(archivos) == 0:
                     errores.append("Carpeta vacía")
+                    reporte["carpetas_error"].append({
+                        "carpeta": carpeta_cliente,
+                        "errores": ["Carpeta vacía"],
+                        "gestiones_esperadas": gestiones_esperadas,
+                        "archivos_faltantes": ["Todos los archivos"],
+                        "archivos_encontrados": 0,
+                        "archivos_esperados": num_archivos_esperados
+                    })
+                    continue  # Saltar verificación de archivos si la carpeta está vacía
                 
                 if errores:
                     reporte["carpetas_error"].append({

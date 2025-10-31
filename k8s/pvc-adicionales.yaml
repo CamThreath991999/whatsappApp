@@ -1,0 +1,92 @@
+# ==================================
+# PersistentVolumes para uploads, downloads y chats
+# IMPORTANTE: Cambiar IP del servidor NFS
+# ==================================
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: whatsapp-uploads-pv
+  namespace: whatsapp-masivo
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    server: 192.168.1.100  # ⚠️ CAMBIAR: IP de tu servidor NFS
+    path: /mnt/nfs/whatsapp-uploads
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: whatsapp-uploads-pvc
+  namespace: whatsapp-masivo
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 20Gi
+  volumeName: whatsapp-uploads-pv
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: whatsapp-downloads-pv
+  namespace: whatsapp-masivo
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    server: 192.168.1.100  # ⚠️ CAMBIAR: IP de tu servidor NFS
+    path: /mnt/nfs/whatsapp-downloads
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: whatsapp-downloads-pvc
+  namespace: whatsapp-masivo
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 20Gi
+  volumeName: whatsapp-downloads-pv
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: whatsapp-chats-pv
+  namespace: whatsapp-masivo
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    server: 192.168.1.100  # ⚠️ CAMBIAR: IP de tu servidor NFS
+    path: /mnt/nfs/whatsapp-chats
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: whatsapp-chats-pvc
+  namespace: whatsapp-masivo
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 10Gi
+  volumeName: whatsapp-chats-pv
+

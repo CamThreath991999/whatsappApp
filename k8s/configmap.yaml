@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: whatsapp-config
+  namespace: whatsapp-masivo
+data:
+  MYSQL_DATABASE: "whatsapp_masivo"
+  MYSQL_USER: "whatsapp_user"
+  DB_HOST: "whatsapp-mysql"
+  DB_PORT: "3306"
+  DB_NAME: "whatsapp_masivo"
+  REDIS_HOST: "whatsapp-redis"
+  REDIS_PORT: "6379"
+  PORT: "3000"
+  NODE_ENV: "production"
+  PYTHON_SERVICE_URL: "http://localhost:5000"
+

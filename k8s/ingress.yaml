@@ -1,0 +1,37 @@
+# ==================================
+# Ingress para acceso con dominio
+# Requiere: Ingress Controller instalado (nginx, traefik, etc.)
+# ==================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: whatsapp-ingress
+  namespace: whatsapp-masivo
+  annotations:
+    # Anotaciones para nginx-ingress
+    nginx.ingress.kubernetes.io/websocket-services: "whatsapp-app"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    # SSL/TLS (descomentar si tienes certificados)
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx  # Cambiar según tu Ingress Controller
+  # TLS (descomentar si tienes certificados)
+  # tls:
+  # - hosts:
+  #   - whatsapp.tu-dominio.com
+  #   secretName: whatsapp-tls
+  rules:
+  - host: whatsapp.tu-dominio.com  # ⚠️ CAMBIAR: Tu dominio
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: whatsapp-app
+            port:
+              number: 3000
+

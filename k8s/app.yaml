@@ -1,0 +1,161 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: whatsapp-app
+  namespace: whatsapp-masivo
+  labels:
+    app: whatsapp-app
+spec:
+  type: LoadBalancer  # Cambiar a NodePort si no tienes LoadBalancer disponible
+  selector:
+    app: whatsapp-app
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whatsapp-app
+  namespace: whatsapp-masivo
+  labels:
+    app: whatsapp-app
+spec:
+  replicas: 3  # Múltiples réplicas para alta disponibilidad
+  selector:
+    matchLabels:
+      app: whatsapp-app
+  template:
+    metadata:
+      labels:
+        app: whatsapp-app
+    spec:
+      containers:
+      - name: app
+        image: tu-usuario/whatsapp-masivo:latest  # ⚠️ CAMBIAR: Usar tu imagen Docker
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        # Variables de configuración
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: whatsapp-config
+              key: PORT
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: whatsapp-config
+              key: NODE_ENV
+        # Base de datos
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: whatsapp-config
+              key: DB_HOST
+        - name: DB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: whatsapp-config
+              key: DB_PORT
+        - name: DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: whatsapp-config
+              key: DB_NAME
+        - name: DB_USER
+          valueFrom:
+            configMapKeyRef:
+              name: whatsapp-config
+              key: MYSQL_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: whatsapp-secrets
+              key: MYSQL_PASSWORD
+        # Redis
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: whatsapp-config
+              key: REDIS_HOST
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: whatsapp-config
+              key: REDIS_PORT
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: whatsapp-secrets
+              key: REDIS_PASSWORD
+        # JWT y Sesiones
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: whatsapp-secrets
+              key: JWT_SECRET
+        - name: SESSION_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: whatsapp-secrets
+              key: SESSION_SECRET
+        # Python Microservice (opcional)
+        - name: PYTHON_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: whatsapp-config
+              key: PYTHON_SERVICE_URL
+        volumeMounts:
+        # CRÍTICO: Montar volumen compartido para sesiones
+        - name: sessions
+          mountPath: /app/sessions
+        - name: uploads
+          mountPath: /app/uploads
+        - name: downloads
+          mountPath: /app/downloads
+        - name: chats
+          mountPath: /app/chats
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 40
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+      volumes:
+      # Sesiones compartidas (ReadWriteMany)
+      - name: sessions
+        persistentVolumeClaim:
+          claimName: whatsapp-sessions-pvc
+      # Uploads, downloads y chats también compartidos
+      - name: uploads
+        persistentVolumeClaim:
+          claimName: whatsapp-uploads-pvc
+      - name: downloads
+        persistentVolumeClaim:
+          claimName: whatsapp-downloads-pvc
+      - name: chats
+        persistentVolumeClaim:
+          claimName: whatsapp-chats-pvc
+

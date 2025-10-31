@@ -26,6 +26,60 @@ Guía de navegación para toda la documentación del sistema.
 
 ## 📁 Documentos Disponibles
 
+### 🚀 Documentación de Despliegue
+
+#### [KUBERNETES_DEPLOYMENT.md](KUBERNETES_DEPLOYMENT.md) - Despliegue en Kubernetes
+**Qué contiene:**
+- Arquitectura Kubernetes
+- Requisitos previos
+- Configuración de almacenamiento compartido (NFS)
+- Despliegue paso a paso
+- Configuración de servicios (MySQL, Redis, App)
+- PersistentVolumes para sesiones compartidas
+- Configuración de acceso (LoadBalancer, NodePort, Ingress)
+- Troubleshooting Kubernetes
+- Escalado y mantenimiento
+
+**Cuándo leerlo:** Para desplegar el sistema en Kubernetes con múltiples PCs/nodos
+
+---
+
+#### [GUIA_RAPIDA_KUBERNETES.md](GUIA_RAPIDA_KUBERNETES.md) - Guía Rápida Kubernetes
+**Qué contiene:**
+- Resumen de pasos principales
+- Scripts de despliegue automatizado
+- Checklist pre-despliegue
+- Comandos útiles
+- Problemas comunes
+
+**Cuándo leerlo:** Para un despliegue rápido en Kubernetes
+
+---
+
+#### [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md) - Despliegue con Docker
+**Qué contiene:**
+- Docker Compose completo
+- Configuración multi-PC con Docker
+- Volúmenes compartidos
+- Backup y restauración
+- Troubleshooting Docker
+
+**Cuándo leerlo:** Para desplegar con Docker Compose (no Kubernetes)
+
+---
+
+#### [DESPLIEGUE_MULTI_PC.md](DESPLIEGUE_MULTI_PC.md) - Despliegue Multi-PC
+**Qué contiene:**
+- Configuración de servidor central
+- Acceso desde múltiples PCs
+- Compartir sesiones de WhatsApp
+- Configuración de red
+- Acceso remoto
+
+**Cuándo leerlo:** Para compartir sesiones entre múltiples PCs (sin Kubernetes)
+
+---
+
 ### 📘 Documentación Principal
 
 #### [README.md](README.md) - Documentación Completa
@@ -209,6 +263,16 @@ Guía de navegación para toda la documentación del sistema.
 
 ---
 
+### ☸️ Caso 7: Despliegue en Kubernetes
+
+**Ruta recomendada:**
+1. [GUIA_RAPIDA_KUBERNETES.md](GUIA_RAPIDA_KUBERNETES.md) - Para empezar rápido
+2. [KUBERNETES_DEPLOYMENT.md](KUBERNETES_DEPLOYMENT.md) - Para despliegue completo
+3. `k8s/README.md` - Documentación de manifiestos
+4. `k8s/deploy.sh` o `k8s/deploy.bat` - Scripts automatizados
+
+---
+
 ### 👨‍💻 Caso 4: Desarrollo/Modificación
 
 **Ruta recomendada:**
@@ -311,6 +375,12 @@ Guía de navegación para toda la documentación del sistema.
 
 ### ¿Qué tecnologías se usaron?
 → [ESTRUCTURA_PROYECTO.md](ESTRUCTURA_PROYECTO.md) sección "Tecnologías Usadas"
+
+### ¿Cómo despliego en Kubernetes?
+→ [GUIA_RAPIDA_KUBERNETES.md](GUIA_RAPIDA_KUBERNETES.md) o [KUBERNETES_DEPLOYMENT.md](KUBERNETES_DEPLOYMENT.md)
+
+### ¿Cómo comparto sesiones entre múltiples PCs?
+→ [KUBERNETES_DEPLOYMENT.md](KUBERNETES_DEPLOYMENT.md) o [DESPLIEGUE_MULTI_PC.md](DESPLIEGUE_MULTI_PC.md)
 
 ---
 
