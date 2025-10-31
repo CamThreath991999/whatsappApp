@@ -7,34 +7,15 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 import re
-# Nota: Se pueden agregar imágenes con PIL si es necesario, pero por ahora usamos emojis/unicode
-#inicio
-#fecha_frame
-#El mismo para gestión CALL checkbox_v2_ivr
-#EJECUTAR
+from openpyxl import load_workbook
+from openpyxl.styles import Font
+#ruta
 class EvidenciasApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("📋 EVIDENCIAS - Sistema de Gestión de Documentación")
-        
-        # Centrar ventana y hacer que se adapte automáticamente
+        self.root.title("EVIDENCIAS - Sistema de Gestión")
+        self.root.geometry("1200x900")
         self.root.configure(bg="#f5f5f5")
-        self.root.update_idletasks()  # Actualizar para obtener dimensiones reales
-        
-        # Obtener dimensiones de pantalla
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-        
-        # Tamaño base adaptativo (80% de pantalla máximo)
-        window_width = min(1400, int(screen_width * 0.85))
-        window_height = min(900, int(screen_height * 0.85))
-        
-        # Centrar ventana
-        x = (screen_width - window_width) // 2
-        y = (screen_height - window_height) // 2
-        
-        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
-        self.root.minsize(1000, 700)  # Tamaño mínimo
         
         # Variables
         self.datos_fuente_path = None
@@ -73,86 +54,49 @@ class EvidenciasApp:
             "carpetas_vacias": []
         }
         
+        # Cache de DataFrames y columnas para optimización
+        self._df_cache = {}
+        self._column_cache = {}
+        
         self.setup_ui()
         
     def setup_ui(self):
-        # Título principal con imagen decorativa
-        title_frame = tk.Frame(self.root, bg="#2c3e50", relief=tk.RAISED, bd=2)
-        title_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
+        # Frame principal con scrollbar
+        main_frame = tk.Frame(self.root, bg="#f5f5f5")
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Frame interno para título con icono
-        title_inner = tk.Frame(title_frame, bg="#2c3e50")
-        title_inner.pack(pady=15)
+        # Canvas para scroll
+        canvas = tk.Canvas(main_frame, bg="#f5f5f5", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg="#f5f5f5")
         
-        # Icono decorativo (emoji grande)
-        icon_label = tk.Label(
-            title_inner,
-            text="📄",
-            font=("Arial", 32),
-            bg="#2c3e50",
-            fg="white"
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
-        icon_label.pack(side=tk.LEFT, padx=(0, 15))
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Título
+        title_frame = tk.Frame(scrollable_frame, bg="#2c3e50", relief=tk.RAISED, bd=2)
+        title_frame.pack(fill=tk.X, pady=(0, 15))
         
         title_label = tk.Label(
-            title_inner,
-            text="EVIDENCIAS",
-            font=("Arial", 28, "bold"),
-            bg="#2c3e50",
-            fg="white"
-        )
-        title_label.pack(side=tk.LEFT)
-        
-        subtitle_label = tk.Label(
             title_frame,
-            text="Sistema de Gestión de Documentación y Procesos",
-            font=("Arial", 11),
+            text="📋 EVIDENCIAS",
+            font=("Arial", 24, "bold"),
             bg="#2c3e50",
-            fg="#ecf0f1"
+            fg="white",
+            pady=15
         )
-        subtitle_label.pack(pady=(0, 10))
+        title_label.pack()
         
-        # Notebook para paginación (pestañas)
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        
-        # Pestaña 1: SECCIÓN BASE
-        tab_base = tk.Frame(self.notebook, bg="#f5f5f5")
-        self.notebook.add(tab_base, text="📊 BASE")
-        
-        # Canvas para scroll en pestaña BASE
-        canvas_base = tk.Canvas(tab_base, bg="#f5f5f5", highlightthickness=0)
-        scrollbar_base = ttk.Scrollbar(tab_base, orient="vertical", command=canvas_base.yview)
-        scrollable_base = tk.Frame(canvas_base, bg="#f5f5f5")
-        
-        scrollable_base.bind("<Configure>", lambda e: canvas_base.configure(scrollregion=canvas_base.bbox("all")))
-        canvas_base.create_window((0, 0), window=scrollable_base, anchor="nw")
-        canvas_base.configure(yscrollcommand=scrollbar_base.set)
-        
-        canvas_base.pack(side="left", fill="both", expand=True)
-        scrollbar_base.pack(side="right", fill="y")
-        
-        # SECCIÓN BASE con icono decorativo
-        base_section = self.create_section(scrollable_base, "📊 SECCIÓN BASE")
-        
-        # Frame decorativo con ícono
-        decor_frame = tk.Frame(base_section, bg="#ecf0f1", pady=5)
-        decor_frame.pack(fill=tk.X)
-        icon_decor = tk.Label(
-            decor_frame,
-            text="📁",
-            font=("Arial", 24),
-            bg="#ecf0f1"
-        )
-        icon_decor.pack(side=tk.LEFT, padx=(0, 10))
-        desc_decor = tk.Label(
-            decor_frame,
-            text="Cargue los archivos fuente con la información de clientes y gestiones",
-            font=("Arial", 9),
-            bg="#ecf0f1",
-            fg="#7f8c8d"
-        )
-        desc_decor.pack(side=tk.LEFT)
+        # SECCIÓN BASE
+        base_section = self.create_section(scrollable_frame, "📊 SECCIÓN BASE")
         
         # Nombre cliente + cuenta
         cliente_frame = tk.Frame(base_section, bg="#ecf0f1", pady=10, padx=10)
@@ -197,72 +141,33 @@ class EvidenciasApp:
         self.nuevos_datos_frame.state = "disabled"
         
         # Fechas
-        # fecha_frame = tk.Frame(base_section, bg="#ecf0f1", pady=10, padx=10)
-        # fecha_frame.pack(fill=tk.X, pady=5)
+        fecha_frame = tk.Frame(base_section, bg="#ecf0f1", pady=10, padx=10)
+        fecha_frame.pack(fill=tk.X, pady=5)
         
-        # tk.Label(fecha_frame, text="Fecha inicio:", font=("Arial", 10), bg="#ecf0f1").pack(side=tk.LEFT, padx=5)
-        # self.fecha_inicio = tk.Entry(fecha_frame, width=12)
-        # self.fecha_inicio.insert(0, "20/10/2025")
-        # self.fecha_inicio.pack(side=tk.LEFT, padx=5)
+        tk.Label(fecha_frame, text="Fecha inicio:", font=("Arial", 10), bg="#ecf0f1").pack(side=tk.LEFT, padx=5)
+        self.fecha_inicio = tk.Entry(fecha_frame, width=12)
+        self.fecha_inicio.insert(0, "20/10/2025")
+        self.fecha_inicio.pack(side=tk.LEFT, padx=5)
         
-        # tk.Label(fecha_frame, text="Fecha Fin:", font=("Arial", 10), bg="#ecf0f1").pack(side=tk.LEFT, padx=5)
-        # self.fecha_fin = tk.Entry(fecha_frame, width=12)
-        # self.fecha_fin.insert(0, "24/10/2025")
-        # self.fecha_fin.pack(side=tk.LEFT, padx=5)
+        tk.Label(fecha_frame, text="Fecha Fin:", font=("Arial", 10), bg="#ecf0f1").pack(side=tk.LEFT, padx=5)
+        self.fecha_fin = tk.Entry(fecha_frame, width=12)
+        self.fecha_fin.insert(0, "24/10/2025")
+        self.fecha_fin.pack(side=tk.LEFT, padx=5)
         
         self.probar_coincidencia_btn = tk.Button(
-            base_section,
+            fecha_frame,
             text="🔍 Probar Coincidencia",
             command=self.probar_coincidencia,
             bg="#3498db",
             fg="white",
             font=("Arial", 10, "bold"),
             state="disabled",
-            cursor="hand2",
-            pady=5
+            cursor="hand2"
         )
-        self.probar_coincidencia_btn.pack(pady=10)
+        self.probar_coincidencia_btn.pack(side=tk.LEFT, padx=10)
         
-        # Configurar scroll para BASE
-        canvas_base.bind_all("<MouseWheel>", lambda e: canvas_base.yview_scroll(int(-1*(e.delta/120)), "units") if self.notebook.index(self.notebook.select()) == 0 else None)
-        
-        # Pestaña 2: SECCIÓN GESTIONES
-        tab_gestiones = tk.Frame(self.notebook, bg="#f5f5f5")
-        self.notebook.add(tab_gestiones, text="⚙️ GESTIONES")
-        
-        # Canvas para scroll en pestaña GESTIONES
-        canvas_gestiones = tk.Canvas(tab_gestiones, bg="#f5f5f5", highlightthickness=0)
-        scrollbar_gestiones = ttk.Scrollbar(tab_gestiones, orient="vertical", command=canvas_gestiones.yview)
-        scrollable_gestiones = tk.Frame(canvas_gestiones, bg="#f5f5f5")
-        
-        scrollable_gestiones.bind("<Configure>", lambda e: canvas_gestiones.configure(scrollregion=canvas_gestiones.bbox("all")))
-        canvas_gestiones.create_window((0, 0), window=scrollable_gestiones, anchor="nw")
-        canvas_gestiones.configure(yscrollcommand=scrollbar_gestiones.set)
-        
-        canvas_gestiones.pack(side="left", fill="both", expand=True)
-        scrollbar_gestiones.pack(side="right", fill="y")
-        
-        # SECCIÓN GESTIONES con icono decorativo
-        gestiones_section = self.create_section(scrollable_gestiones, "⚙️ SECCIÓN GESTIONES")
-        
-        # Frame decorativo
-        decor_gestiones = tk.Frame(gestiones_section, bg="#ecf0f1", pady=5)
-        decor_gestiones.pack(fill=tk.X)
-        icon_gestiones = tk.Label(
-            decor_gestiones,
-            text="⚡",
-            font=("Arial", 24),
-            bg="#ecf0f1"
-        )
-        icon_gestiones.pack(side=tk.LEFT, padx=(0, 10))
-        desc_gestiones = tk.Label(
-            decor_gestiones,
-            text="Configure las gestiones IVR, SMS y CALL con sus archivos y configuraciones correspondientes",
-            font=("Arial", 9),
-            bg="#ecf0f1",
-            fg="#7f8c8d"
-        )
-        desc_gestiones.pack(side=tk.LEFT)
+        # SECCIÓN GESTIONES
+        gestiones_section = self.create_section(scrollable_frame, "⚙️ SECCIÓN GESTIONES")
         
         # IVR
         ivr_frame = self.create_gestion_frame(
@@ -290,18 +195,18 @@ class EvidenciasApp:
         )
         
         # Checkbox usar mismo archivo para CALL
-        # checkbox_frame = tk.Frame(ivr_frame, bg="#ecf0f1")
-        # checkbox_frame.pack(fill=tk.X, pady=5)
-        # checkbox_v2_ivr = tk.Checkbutton(
-        #     checkbox_frame,
-        #     text="✅ El mismo para gestión CALL",
-        #     variable=self.ivr_use_for_call,
-        #     bg="#ecf0f1",
-        #     font=("Arial", 9),
-        #     cursor="hand2",
-        #     command=self.toggle_call_gestiones_selector
-        # )
-        #checkbox_v2_ivr.pack(side=tk.LEFT)
+        checkbox_frame = tk.Frame(ivr_frame, bg="#ecf0f1")
+        checkbox_frame.pack(fill=tk.X, pady=5)
+        checkbox_v2_ivr = tk.Checkbutton(
+            checkbox_frame,
+            text="✅ El mismo para gestión CALL",
+            variable=self.ivr_use_for_call,
+            bg="#ecf0f1",
+            font=("Arial", 9),
+            cursor="hand2",
+            command=self.toggle_call_gestiones_selector
+        )
+        checkbox_v2_ivr.pack(side=tk.LEFT)
         
         # Match IVR
         match_frame = tk.Frame(ivr_frame, bg="#ecf0f1", pady=5)
@@ -400,48 +305,17 @@ class EvidenciasApp:
         )
         
         
-        # Configurar scroll para GESTIONES
-        canvas_gestiones.bind_all("<MouseWheel>", lambda e: canvas_gestiones.yview_scroll(int(-1*(e.delta/120)), "units") if self.notebook.index(self.notebook.select()) == 1 else None)
-        
-        # Pestaña 3: CONFIGURACIÓN V2
-        tab_v2 = tk.Frame(self.notebook, bg="#f5f5f5")
-        self.notebook.add(tab_v2, text="⚙️ V2")
-        
-        # Canvas para scroll en pestaña V2
-        canvas_v2 = tk.Canvas(tab_v2, bg="#f5f5f5", highlightthickness=0)
-        scrollbar_v2 = ttk.Scrollbar(tab_v2, orient="vertical", command=canvas_v2.yview)
-        scrollable_v2 = tk.Frame(canvas_v2, bg="#f5f5f5")
-        
-        scrollable_v2.bind("<Configure>", lambda e: canvas_v2.configure(scrollregion=canvas_v2.bbox("all")))
-        canvas_v2.create_window((0, 0), window=scrollable_v2, anchor="nw")
-        canvas_v2.configure(yscrollcommand=scrollbar_v2.set)
-        
-        canvas_v2.pack(side="left", fill="both", expand=True)
-        scrollbar_v2.pack(side="right", fill="y")
-        
-        # Checkbox V2 con decoración
-        v2_section = tk.Frame(scrollable_v2, bg="#ecf0f1", pady=10, padx=10, relief=tk.RAISED, bd=2)
+        # Checkbox V2 (separado de las gestiones)
+        v2_section = tk.Frame(scrollable_frame, bg="#ecf0f1", pady=10, padx=10, relief=tk.RAISED, bd=2)
         v2_section.pack(fill=tk.X, pady=10)
         
-        # Frame con icono
-        v2_header = tk.Frame(v2_section, bg="#ecf0f1")
-        v2_header.pack(anchor=tk.W, pady=5)
-        
-        icon_v2 = tk.Label(
-            v2_header,
-            text="🔄",
-            font=("Arial", 20),
-            bg="#ecf0f1"
-        )
-        icon_v2.pack(side=tk.LEFT, padx=(0, 10))
-        
         tk.Label(
-            v2_header,
+            v2_section,
             text="⚙️ CONFIGURACIÓN V2",
             font=("Arial", 12, "bold"),
             bg="#ecf0f1",
             fg="#2c3e50"
-        ).pack(side=tk.LEFT)
+        ).pack(anchor=tk.W, pady=5)
         
         v2_frame = tk.Frame(v2_section, bg="#ecf0f1", pady=5)
         v2_frame.pack(fill=tk.X)
@@ -466,27 +340,8 @@ class EvidenciasApp:
             justify=tk.LEFT
         ).pack(side=tk.LEFT, padx=10)
         
-        # Configurar scroll para V2
-        canvas_v2.bind_all("<MouseWheel>", lambda e: canvas_v2.yview_scroll(int(-1*(e.delta/120)), "units") if self.notebook.index(self.notebook.select()) == 2 else None)
-        
-        # Pestaña 4: SALIDA Y EJECUCIÓN
-        tab_salida = tk.Frame(self.notebook, bg="#f5f5f5")
-        self.notebook.add(tab_salida, text="📁 SALIDA")
-        
-        # Canvas para scroll en pestaña SALIDA
-        canvas_salida = tk.Canvas(tab_salida, bg="#f5f5f5", highlightthickness=0)
-        scrollbar_salida = ttk.Scrollbar(tab_salida, orient="vertical", command=canvas_salida.yview)
-        scrollable_salida = tk.Frame(canvas_salida, bg="#f5f5f5")
-        
-        scrollable_salida.bind("<Configure>", lambda e: canvas_salida.configure(scrollregion=canvas_salida.bbox("all")))
-        canvas_salida.create_window((0, 0), window=scrollable_salida, anchor="nw")
-        canvas_salida.configure(yscrollcommand=scrollbar_salida.set)
-        
-        canvas_salida.pack(side="left", fill="both", expand=True)
-        scrollbar_salida.pack(side="right", fill="y")
-        
         # Carpeta de salida
-        salida_frame = tk.Frame(scrollable_salida, bg="#ecf0f1", pady=10, padx=10, relief=tk.RAISED, bd=2)
+        salida_frame = tk.Frame(scrollable_frame, bg="#ecf0f1", pady=10, padx=10, relief=tk.RAISED, bd=2)
         salida_frame.pack(fill=tk.X, pady=15)
         
         tk.Label(
@@ -519,8 +374,8 @@ class EvidenciasApp:
         self.nombre_carpeta_entry.insert(0, datetime.now().strftime("evidencias_%d-%m-%y"))
         
         # Botón ejecutar
-        ejecutar_frame = tk.Frame(scrollable_salida, bg="#f5f5f5", pady=20)
-        ejecutar_frame.pack(fill=tk.X, padx=20)
+        ejecutar_frame = tk.Frame(scrollable_frame, bg="#f5f5f5", pady=20)
+        ejecutar_frame.pack(fill=tk.X)
         
         self.ejecutar_btn = tk.Button(
             ejecutar_frame,
@@ -529,11 +384,11 @@ class EvidenciasApp:
             bg="#27ae60",
             fg="white",
             font=("Arial", 14, "bold"),
-            pady=15,
+            pady=10,
             cursor="hand2",
             state="disabled"
         )
-        self.ejecutar_btn.pack(pady=10)
+        self.ejecutar_btn.pack(side=tk.LEFT, padx=10)
         
         tk.Button(
             ejecutar_frame,
@@ -544,40 +399,33 @@ class EvidenciasApp:
             font=("Arial", 11, "bold"),
             pady=8,
             cursor="hand2"
-        ).pack(pady=5)
+        ).pack(side=tk.LEFT, padx=10)
         
-        # Configurar scroll para SALIDA
-        canvas_salida.bind_all("<MouseWheel>", lambda e: canvas_salida.yview_scroll(int(-1*(e.delta/120)), "units") if self.notebook.index(self.notebook.select()) == 3 else None)
-        
-        # Pestaña 5: LOGS Y AUDITOR (opcional, para mostrar logs también en principal)
-        tab_logs = tk.Frame(self.notebook, bg="#f5f5f5")
-        self.notebook.add(tab_logs, text="📋 LOGS")
-        
-        logs_section_frame = tk.Frame(tab_logs, bg="#ecf0f1", pady=10, padx=10, relief=tk.RAISED, bd=2)
-        logs_section_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # LOGS
+        logs_section = tk.Frame(scrollable_frame, bg="#ecf0f1", pady=10, padx=10, relief=tk.RAISED, bd=2)
+        logs_section.pack(fill=tk.BOTH, expand=True, pady=15)
         
         tk.Label(
-            logs_section_frame,
+            logs_section,
             text="📋 LOGS",
             font=("Arial", 12, "bold"),
             bg="#ecf0f1"
-        ).pack(anchor=tk.W, pady=(0, 10))
+        ).pack(anchor=tk.W)
         
-        # Widget de logs para ventana principal (visible en pestaña LOGS)
         self.logs_text = scrolledtext.ScrolledText(
-            logs_section_frame,
-            height=20,
+            logs_section,
+            height=10,
             font=("Consolas", 9),
             bg="#2c3e50",
             fg="#ecf0f1",
             wrap=tk.WORD
         )
-        self.logs_text.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+        self.logs_text.pack(fill=tk.BOTH, expand=True, pady=5)
         
-        # Progress bar (oculto en principal, se usará en ventana de ejecución)
+        # Progress bar
         self.progress_var = tk.DoubleVar()
         self.progress_bar = ttk.Progressbar(
-            logs_section_frame,
+            logs_section,
             variable=self.progress_var,
             maximum=100,
             length=400
@@ -586,7 +434,7 @@ class EvidenciasApp:
         
         # Botón auditor
         auditor_btn = tk.Button(
-            logs_section_frame,
+            logs_section,
             text="🔍 EJECUTAR AUDITOR",
             command=self.ejecutar_auditor,
             bg="#8e44ad",
@@ -597,27 +445,8 @@ class EvidenciasApp:
         )
         auditor_btn.pack(pady=10)
         
-        # Variables para ventana de ejecución
-        self.ejecucion_window = None
-        self.progress_label = None
-        self.logs_text_ejecucion = None
-        self._seccion_base_completa = False
-        self._seccion_gestiones_completa = False
-        
-        # Cache de DataFrames para optimización
-        self._df_cache = {}
-        self._column_cache = {}
-    
-    def verificar_seccion_gestiones_completa(self):
-        """Verifica si la sección GESTIONES está completa (tiene archivos mínimos)"""
-        # Al menos IVR debe tener audio (obligatorio)
-        tiene_minimo = self.ivr_base_audio is not None
-        
-        # Si tiene al menos el audio de IVR, considerar completa
-        if tiene_minimo and not hasattr(self, '_seccion_gestiones_completa'):
-            self._seccion_gestiones_completa = True
-            return True
-        return False
+        # Configurar canvas scrolling
+        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
         
     def create_section(self, parent, title):
         frame = tk.Frame(parent, bg="#ecf0f1", relief=tk.RAISED, bd=2, pady=10, padx=10)
@@ -766,12 +595,6 @@ class EvidenciasApp:
                 if hasattr(self, 'nuevos_datos_frame'):
                     self.nuevos_datos_frame.update_selected(file_path)
                 self.log(f"✅ Nuevos datos cargados: {len(self.nuevos_datos_df)} registros")
-                
-                # Paginar a GESTIONES si BASE está completa
-                if hasattr(self, 'datos_fuente_df') and self.datos_fuente_df is not None:
-                    if not hasattr(self, '_seccion_base_completa'):
-                        self.notebook.select(1)  # Cambiar a pestaña GESTIONES
-                        self._seccion_base_completa = True
             except Exception as e:
                 messagebox.showerror("Error", f"Error al cargar archivo: {str(e)}")
     
@@ -892,10 +715,6 @@ class EvidenciasApp:
                 self.call_gestiones_frame.btn.config(text="✅ Seleccionado (IVR)", bg="#28a745", state="normal")
             
             self.log(f"✅ Archivo base IVR seleccionado: {os.path.basename(file_path)}")
-            
-            # Verificar si GESTIONES está completa y paginar a V2
-            if self.verificar_seccion_gestiones_completa():
-                self.notebook.select(2)  # Cambiar a pestaña V2
     
     def select_ivr_base_audio(self):
         file_path = filedialog.askopenfilename(
@@ -907,10 +726,6 @@ class EvidenciasApp:
             if hasattr(self, 'ivr_base_audio_frame'):
                 self.ivr_base_audio_frame.update_selected(file_path)
             self.log(f"✅ Audio base IVR seleccionado: {os.path.basename(file_path)}")
-            
-            # Verificar si GESTIONES está completa y paginar a V2
-            if self.verificar_seccion_gestiones_completa():
-                self.notebook.select(2)  # Cambiar a pestaña V2
         else:
             messagebox.showerror("Error", "Debe seleccionar un archivo MP3")
     
@@ -924,10 +739,6 @@ class EvidenciasApp:
             if hasattr(self, 'sms_base_excel_frame'):
                 self.sms_base_excel_frame.update_selected(file_path)
             self.log(f"✅ Archivo base SMS seleccionado: {os.path.basename(file_path)}")
-            
-            # Verificar si GESTIONES está completa y paginar a V2
-            if self.verificar_seccion_gestiones_completa():
-                self.notebook.select(2)  # Cambiar a pestaña V2
     
     def select_call_gestiones_excel(self):
         if self.ivr_use_for_call.get():
@@ -1023,22 +834,11 @@ class EvidenciasApp:
                 self.ejecutar_btn.config(state="normal")
             
             self.log(f"✅ Carpeta de salida seleccionada: {dir_path}")
-            
-            # Paginar automáticamente: si ya se seleccionó carpeta, mantener en SALIDA
-            # (el botón ejecutar ya habilita, no necesita paginar más)
     
     def log(self, message):
-        """Log a message to the appropriate logs widget"""
-        # Determinar qué widget(s) de logs usar
-        logs_widgets = [self.logs_text]  # Siempre escribir en la ventana principal
-        if hasattr(self, 'logs_text_ejecucion') and self.logs_text_ejecucion:
-            logs_widgets.append(self.logs_text_ejecucion)  # También en ventana de ejecución si existe
-        
         # Optimización: solo actualizar UI ocasionalmente para mejorar rendimiento
         timestamp = datetime.now().strftime("%H:%M:%S")
-        for logs_widget in logs_widgets:
-            if logs_widget:
-                logs_widget.insert(tk.END, f"[{timestamp}] {message}\n")
+        self.logs_text.insert(tk.END, f"[{timestamp}] {message}\n")
         
         # Solo hacer scroll y update cada N mensajes para optimizar
         if hasattr(self, '_log_count'):
@@ -1047,139 +847,16 @@ class EvidenciasApp:
             self._log_count = 0
         
         if self._log_count % 5 == 0:  # Update cada 5 logs
-            for logs_widget in logs_widgets:
-                if logs_widget:
-                    logs_widget.see(tk.END)
-            # Actualizar la ventana correcta
-            window = self.ejecucion_window if hasattr(self, 'ejecucion_window') and self.ejecucion_window else self.root
-            window.update_idletasks()  # Usar update_idletasks en lugar de update para mejorar rendimiento
+            self.logs_text.see(tk.END)
+            self.root.update_idletasks()  # Usar update_idletasks en lugar de update para mejor rendimiento
     
     def ejecutar_proceso(self):
         if not self.validar_datos():
             return
         
-        # Crear ventana de ejecución
-        self.abrir_ventana_ejecucion()
-    
-    def abrir_ventana_ejecucion(self):
-        """Abre una nueva ventana solo con logs y progreso"""
-        # Crear nueva ventana
-        self.ejecucion_window = tk.Toplevel(self.root)
-        self.ejecucion_window.title("📋 Procesando Evidencias...")
-        self.ejecucion_window.geometry("900x600")
-        self.ejecucion_window.configure(bg="#2c3e50")
-        
-        # No permitir cerrar durante ejecución
-        self.ejecucion_window.protocol("WM_DELETE_WINDOW", lambda: None)
-        
-        # Header con decoración
-        header_frame = tk.Frame(self.ejecucion_window, bg="#2c3e50", pady=20)
-        header_frame.pack(fill=tk.X)
-        
-        # Frame interno para alinear
-        header_inner = tk.Frame(header_frame, bg="#2c3e50")
-        header_inner.pack()
-        
-        # Icono decorativo
-        icon_exec = tk.Label(
-            header_inner,
-            text="⚙️",
-            font=("Arial", 36),
-            bg="#2c3e50",
-            fg="white"
-        )
-        icon_exec.pack(side=tk.LEFT, padx=(0, 15))
-        
-        title_exec = tk.Label(
-            header_inner,
-            text="PROCESANDO EVIDENCIAS",
-            font=("Arial", 20, "bold"),
-            bg="#2c3e50",
-            fg="white"
-        )
-        title_exec.pack(side=tk.LEFT)
-        
-        # Subtítulo
-        subtitle_exec = tk.Label(
-            header_frame,
-            text="Generando documentación y archivos de evidencia...",
-            font=("Arial", 10),
-            bg="#2c3e50",
-            fg="#ecf0f1"
-        )
-        subtitle_exec.pack(pady=(5, 0))
-        
-        # Frame principal
-        main_exec_frame = tk.Frame(self.ejecucion_window, bg="#34495e")
-        main_exec_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-        
-        # Logs
-        logs_label = tk.Label(
-            main_exec_frame,
-            text="📋 LOGS",
-            font=("Arial", 14, "bold"),
-            bg="#34495e",
-            fg="white"
-        )
-        logs_label.pack(anchor=tk.W, pady=(0, 10))
-        
-        # Crear nuevo widget de logs para ventana de ejecución
-        self.logs_text_ejecucion = scrolledtext.ScrolledText(
-            main_exec_frame,
-            height=20,
-            font=("Consolas", 10),
-            bg="#2c3e50",
-            fg="#ecf0f1",
-            wrap=tk.WORD
-        )
-        self.logs_text_ejecucion.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
-        
-        # Progress bar
-        progress_frame = tk.Frame(main_exec_frame, bg="#34495e")
-        progress_frame.pack(fill=tk.X, pady=10)
-        
-        tk.Label(
-            progress_frame,
-            text="Progreso:",
-            font=("Arial", 11, "bold"),
-            bg="#34495e",
-            fg="white"
-        ).pack(side=tk.LEFT, padx=(0, 10))
-        
-        self.progress_var = tk.DoubleVar()
-        self.progress_bar_ejecucion = ttk.Progressbar(
-            progress_frame,
-            variable=self.progress_var,
-            maximum=100,
-            length=600
-        )
-        self.progress_bar_ejecucion.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-        
-        self.progress_label = tk.Label(
-            progress_frame,
-            text="0%",
-            font=("Arial", 11, "bold"),
-            bg="#34495e",
-            fg="white",
-            width=5
-        )
-        self.progress_label.pack(side=tk.LEFT)
-        
-        # Botón cancelar (para futuro)
-        btn_frame = tk.Frame(main_exec_frame, bg="#34495e")
-        btn_frame.pack(fill=tk.X, pady=10)
-        
-        # Iniciar procesamiento en hilo separado
-        import threading
-        thread = threading.Thread(target=self.ejecutar_proceso_background, daemon=True)
-        thread.start()
-    
-    def ejecutar_proceso_background(self):
-        """Ejecuta el proceso en background y actualiza la ventana de ejecución"""
-        # Limpiar logs en la ventana de ejecución
-        self.logs_text_ejecucion.delete(1.0, tk.END)
-        
+        self.ejecutar_btn.config(state="disabled")
         self.progress_var.set(0)
+        self.logs_text.delete(1.0, tk.END)
         
         # Limpiar registro de archivos no creados y cache
         self.archivos_no_creados = {
@@ -1194,7 +871,7 @@ class EvidenciasApp:
         self._column_cache.clear()
         
         try:
-            # Pre-cargar todos los DataFrames necesarios (optimización)
+            # PRECARGAR todos los DataFrames necesarios (OPTIMIZACIÓN CRÍTICA)
             self.log("📦 Precargando archivos Excel...")
             if self.ivr_base_excel and os.path.exists(self.ivr_base_excel):
                 self._df_cache['ivr'] = pd.read_excel(self.ivr_base_excel)
@@ -1225,7 +902,7 @@ class EvidenciasApp:
             os.makedirs(carpeta_principal, exist_ok=True)
             
             total = len(self.datos_fuente_df)
-            update_interval = max(1, total // 20)  # Actualizar cada ~5%
+            update_interval = max(1, total // 20)  # Actualizar UI cada ~5%
             
             for idx, cliente_row in self.datos_fuente_df.iterrows():
                 try:
@@ -1235,45 +912,20 @@ class EvidenciasApp:
                     
                     # Mostrar avance solo cada intervalo o al final
                     if (idx + 1) % update_interval == 0 or (idx + 1) == total:
-                        self.progress_label.config(text=f"{progress:.0f}%")
                         barra = "|" * int(progress / 10) + "." * (10 - int(progress / 10))
                         self.log(f"AVANCE: {barra} {progress:.0f}%")
-                        self.ejecucion_window.update_idletasks()  # Actualizar UI solo ocasionalmente
+                        self.root.update_idletasks()  # Usar update_idletasks en lugar de update
                 except Exception as e:
-                    pass
+                    pass  # Errores críticos se manejan internamente
             
             self.progress_var.set(100)
-            self.progress_label.config(text="100%")
             self.log("✅ Proceso completado exitosamente")
-            
-            # Mostrar botón de cerrar
-            btn_cerrar = tk.Button(
-                self.ejecucion_window,
-                text="✅ Cerrar",
-                command=self.cerrar_ventana_ejecucion,
-                bg="#27ae60",
-                fg="white",
-                font=("Arial", 12, "bold"),
-                pady=10,
-                cursor="hand2"
-            )
-            btn_cerrar.pack(pady=20)
-            
-            messagebox.showinfo("Éxito", f"Proceso completado exitosamente.\nTotal de carpetas creadas: {total}", parent=self.ejecucion_window)
+            messagebox.showinfo("Éxito", f"Proceso completado exitosamente.\nTotal de carpetas creadas: {total}")
             
         except Exception as e:
             self.log(f"❌ Error en el proceso: {str(e)}")
-            messagebox.showerror("Error", f"Error en el proceso: {str(e)}", parent=self.ejecucion_window)
-        
+            messagebox.showerror("Error", f"Error en el proceso: {str(e)}")
         finally:
-            # Permitir cerrar ventana
-            self.ejecucion_window.protocol("WM_DELETE_WINDOW", self.cerrar_ventana_ejecucion)
-    
-    def cerrar_ventana_ejecucion(self):
-        """Cierra la ventana de ejecución"""
-        if self.ejecucion_window:
-            self.ejecucion_window.destroy()
-            self.ejecucion_window = None
             self.ejecutar_btn.config(state="normal")
     
     def validar_datos(self):
@@ -1416,42 +1068,46 @@ class EvidenciasApp:
             except:
                 self.archivos_no_creados["ivr_sin_audio"].append(nombre_cliente)
         
-            # Procesar Excel (opcional, solo si hay archivo base) - Usar cache
-            excel_creado = False
-            if self.ivr_base_excel and 'ivr' in self._df_cache:
-                try:
-                    df_ivr = self._df_cache['ivr']  # Usar DataFrame cacheado
-                    match_cliente_col = self.ivr_match_cliente_combo.get()
-                    match_archivo_col = self.ivr_match_archivo_combo.get()
-                    cuenta_cliente = str(cliente_row.get(match_cliente_col, "")).strip()
+        # Procesar Excel (opcional, solo si hay archivo base) - USAR CACHE
+        excel_creado = False
+        if self.ivr_base_excel and 'ivr' in self._df_cache:
+            try:
+                df_ivr = self._df_cache['ivr']  # Usar DataFrame cacheado
+                match_cliente_col = self.ivr_match_cliente_combo.get()
+                match_archivo_col = self.ivr_match_archivo_combo.get()
+                cuenta_cliente = str(cliente_row.get(match_cliente_col, "")).strip()
+                
+                if match_archivo_col in df_ivr.columns:
+                    cliente_data = df_ivr[df_ivr[match_archivo_col].astype(str).str.strip() == cuenta_cliente]
                     
-                    if match_archivo_col in df_ivr.columns:
-                        cliente_data = df_ivr[df_ivr[match_archivo_col].astype(str).str.strip() == cuenta_cliente]
-                        
-                        # Cachear búsqueda de columna GESTION EFECTIVA
-                        cache_key = 'ivr_gestion_col'
-                        if cache_key not in self._column_cache:
-                            gestion_col = None
-                            for col in df_ivr.columns:
-                                if "GESTION EFECTIVA" in str(col).upper():
-                                    gestion_col = col
-                                    break
-                            self._column_cache[cache_key] = gestion_col
-                        gestion_col = self._column_cache[cache_key]
-                        
-                        if gestion_col:
-                            cliente_data = cliente_data[cliente_data[gestion_col].astype(str).str.contains("IVR", case=False, na=False)]
-                        
-                        if len(cliente_data) > 0:
-                            cliente_data = cliente_data.copy()
-                            cliente_data["TIPO DE GESTION"] = "IVR"
-                            nombre_archivo = f"{self.sanitize_filename(nombre_cliente)}_ivr.xlsx"
-                            archivo_excel = os.path.join(carpeta_cliente, nombre_archivo)
-                            cliente_data.to_excel(archivo_excel, index=False)
-                            excel_creado = True
-                            archivos_creados.append("xlsx")
-                except:
-                    pass
+                    # Cachear búsqueda de columna GESTION EFECTIVA
+                    cache_key = 'ivr_gestion_col'
+                    if cache_key not in self._column_cache:
+                        gestion_col = None
+                        for col in df_ivr.columns:
+                            if "GESTION EFECTIVA" in str(col).upper():
+                                gestion_col = col
+                                break
+                        self._column_cache[cache_key] = gestion_col
+                    gestion_col = self._column_cache[cache_key]
+                    
+                    if gestion_col:
+                        cliente_data = cliente_data[cliente_data[gestion_col].astype(str).str.contains("IVR", case=False, na=False)]
+                    
+                    if len(cliente_data) > 0:
+                        cliente_data = cliente_data.copy()
+                        cliente_data["TIPO DE GESTION"] = "IVR"
+                        nombre_archivo = f"{self.sanitize_filename(nombre_cliente)}_ivr.xlsx"
+                        archivo_excel = os.path.join(carpeta_cliente, nombre_archivo)
+                        # Convertir todos los valores a string de forma optimizada
+                        cliente_data = cliente_data.astype(str)
+                        cliente_data.to_excel(archivo_excel, index=False, engine='openpyxl')
+                        # Formatear todas las columnas como texto
+                        self.formatear_excel_como_texto(archivo_excel)
+                        excel_creado = True
+                        archivos_creados.append("xlsx")
+            except:
+                pass
         
         # Log resumido
         if len(archivos_creados) == 2:
@@ -1480,7 +1136,11 @@ class EvidenciasApp:
                 if len(cliente_data) > 0:
                     nombre_archivo = f"SMS_{self.sanitize_filename(nombre_cliente)}.xlsx"
                     archivo_excel = os.path.join(carpeta_cliente, nombre_archivo)
-                    cliente_data.to_excel(archivo_excel, index=False)
+                    # Convertir todos los valores a string de forma optimizada
+                    cliente_data = cliente_data.astype(str)
+                    cliente_data.to_excel(archivo_excel, index=False, engine='openpyxl')
+                    # Formatear todas las columnas como texto
+                    self.formatear_excel_como_texto(archivo_excel)
                     self.log(f"  ->SMS: Archivo creado")
                     return
             
@@ -1543,13 +1203,17 @@ class EvidenciasApp:
                         cliente_data["TIPO DE GESTION"] = "CALL"
                         nombre_archivo = f"{self.sanitize_filename(nombre_cliente)}_gestiones.xlsx"
                         archivo_excel = os.path.join(carpeta_cliente, nombre_archivo)
-                        cliente_data.to_excel(archivo_excel, index=False)
+                        # Convertir todos los valores a string de forma optimizada
+                        cliente_data = cliente_data.astype(str)
+                        cliente_data.to_excel(archivo_excel, index=False, engine='openpyxl')
+                        # Formatear todas las columnas como texto
+                        self.formatear_excel_como_texto(archivo_excel)
                         excel_creado = True
                         archivos_creados.append("xlsx")
             except:
                 pass
         
-        # PROCESAR AUDIO (OBLIGATORIO) - Usar cache
+        # PROCESAR AUDIO (OBLIGATORIO) - USAR CACHE
         if not telefono_cliente:
             self.archivos_no_creados["call_sin_audio"].append(nombre_cliente)
             return
@@ -1652,6 +1316,34 @@ class EvidenciasApp:
         """Limpia el nombre de archivo de caracteres inválidos"""
         filename = re.sub(r'[<>:"/\\|?*]', '', filename)
         return filename.strip()
+    
+    def formatear_excel_como_texto(self, archivo_excel):
+        """
+        Formatea todas las columnas de un archivo Excel como texto
+        para evitar que Excel recorte números largos (ej: 107009231232422317 -> 1.07009E+17)
+        Optimizado: formatea todas las celdas de una vez en lugar de iterar
+        """
+        try:
+            # Cargar el workbook
+            wb = load_workbook(archivo_excel)
+            ws = wb.active
+            
+            # Formatear todas las columnas de una vez (más rápido)
+            for col in ws.columns:
+                for cell in col:
+                    if cell.value is not None:
+                        # Convertir el valor a string si no lo es ya
+                        if not isinstance(cell.value, str):
+                            cell.value = str(cell.value)
+                        # Establecer el formato de la celda como texto (@ es el código de formato de texto en Excel)
+                        cell.number_format = '@'
+            
+            # Guardar el archivo
+            wb.save(archivo_excel)
+            wb.close()
+        except Exception as e:
+            # Si hay algún error, solo lo ignoramos (no queremos romper el proceso)
+            pass
     
     def simular_resultado(self):
         if self.datos_fuente_df is None:
@@ -2514,6 +2206,7 @@ class EvidenciasApp:
 """
         
         with open(file_path, 'w', encoding='utf-8') as f:
+            
             f.write(html)
         
         messagebox.showinfo("Éxito", f"Reporte exportado a {file_path}")
