@@ -30,7 +30,7 @@ router.get('/', verifyToken, async (req, res) => {
 // Crear nuevo dispositivo
 router.post('/', verifyToken, async (req, res) => {
     try {
-        const { nombre_dispositivo, categoria_id } = req.body;
+        const { nombre_dispositivo } = req.body;
 
         if (!nombre_dispositivo) {
             return res.status(400).json({
@@ -60,14 +60,6 @@ router.post('/', verifyToken, async (req, res) => {
             'INSERT INTO dispositivos (usuario_id, nombre_dispositivo, session_id, estado) VALUES (?, ?, ?, ?)',
             [req.user.id, nombre_dispositivo, session_id, 'desconectado']
         );
-
-        // Si se especificó categoría, actualizarla
-        if (categoria_id) {
-            await pool.execute(
-                'UPDATE categorias SET dispositivo_id = ? WHERE id = ? AND usuario_id = ?',
-                [result.insertId, categoria_id, req.user.id]
-            );
-        }
 
         res.json({
             success: true,

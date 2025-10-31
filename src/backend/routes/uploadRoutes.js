@@ -153,13 +153,17 @@ router.post('/contacts-excel', verifyToken, upload.single('file'), async (req, r
                         categoriaId = categorias[0].id;
                         categoriaDeviceId = categorias[0].dispositivo_id;
                     } else {
-                        // Crear nueva categoría
+                        // Generar color aleatorio para la nueva categoría
+                        const colors = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8', '#6610f2', '#e83e8c', '#fd7e14', '#20c997', '#6c757d'];
+                        const randomColor = colors[Math.floor(Math.random() * colors.length)];
+                        
+                        // Crear nueva categoría con color aleatorio
                         const [resultCat] = await pool.execute(
-                            'INSERT INTO categorias (nombre, usuario_id) VALUES (?, ?)',
-                            [categoria, req.user.id]
+                            'INSERT INTO categorias (nombre, usuario_id, color) VALUES (?, ?, ?)',
+                            [categoria, req.user.id, randomColor]
                         );
                         categoriaId = resultCat.insertId;
-                        console.log(`   ✅ Categoría "${categoria}" creada con ID ${categoriaId}`);
+                        console.log(`   ✅ Categoría "${categoria}" creada con ID ${categoriaId} y color ${randomColor}`);
                     }
                 }
 

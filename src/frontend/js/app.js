@@ -336,19 +336,10 @@ async function showCreateDeviceModal() {
     const modal = document.getElementById('genericModal');
     document.getElementById('genericModalTitle').textContent = 'Nuevo Dispositivo';
     
-    const categories = await apiRequest('/categories');
-    
     document.getElementById('genericModalBody').innerHTML = `
         <div class="form-group">
             <label>Nombre del dispositivo</label>
             <input type="text" id="deviceName" class="form-control" placeholder="Ej: Dispositivo 1" required>
-        </div>
-        <div class="form-group">
-            <label>Categoría (opcional)</label>
-            <select id="deviceCategory" class="form-control">
-                <option value="">Sin categoría</option>
-                ${categories.categories.map(cat => `<option value="${cat.id}">${cat.nombre}</option>`).join('')}
-            </select>
         </div>
     `;
 
@@ -362,7 +353,6 @@ async function showCreateDeviceModal() {
 
 async function createDevice() {
     const nombre = document.getElementById('deviceName').value;
-    const categoria_id = document.getElementById('deviceCategory').value || null;
 
     if (!nombre) {
         showAlert('El nombre es requerido', 'error');
@@ -372,7 +362,7 @@ async function createDevice() {
     try {
         const data = await apiRequest('/devices', {
             method: 'POST',
-            body: JSON.stringify({ nombre_dispositivo: nombre, categoria_id })
+            body: JSON.stringify({ nombre_dispositivo: nombre })
         });
 
         showAlert('Dispositivo creado correctamente', 'success');
@@ -596,9 +586,12 @@ function createCategoryCard(category) {
     return card;
 }
 
-function showCreateCategoryModal() {
+async function showCreateCategoryModal() {
     const modal = document.getElementById('genericModal');
     document.getElementById('genericModalTitle').textContent = 'Nueva Categoría';
+    
+    // Cargar dispositivos disponibles
+    const devices = await apiRequest('/devices');
     
     document.getElementById('genericModalBody').innerHTML = `
         <div class="form-group">
@@ -612,6 +605,14 @@ function showCreateCategoryModal() {
         <div class="form-group">
             <label>Color</label>
             <input type="color" id="categoryColor" class="form-control" value="#007bff">
+        </div>
+        <div class="form-group">
+            <label>Dispositivo responsable (opcional)</label>
+            <select id="categoryDevice" class="form-control">
+                <option value="">Sin dispositivo asignado</option>
+                ${devices.devices.map(device => `<option value="${device.id}">${device.nombre_dispositivo}</option>`).join('')}
+            </select>
+            <small class="form-text text-muted">Los mensajes de esta categoría se enviarán desde el dispositivo seleccionado</small>
         </div>
     `;
 
@@ -627,6 +628,7 @@ async function createCategory() {
     const nombre = document.getElementById('categoryName').value;
     const descripcion = document.getElementById('categoryDescription').value;
     const color = document.getElementById('categoryColor').value;
+    const dispositivo_id = document.getElementById('categoryDevice').value || null;
 
     if (!nombre) {
         showAlert('El nombre es requerido', 'error');
@@ -636,7 +638,7 @@ async function createCategory() {
     try {
         await apiRequest('/categories', {
             method: 'POST',
-            body: JSON.stringify({ nombre, descripcion, color })
+            body: JSON.stringify({ nombre, descripcion, color, dispositivo_id })
         });
 
         showAlert('Categoría creada correctamente', 'success');
@@ -657,6 +659,9 @@ async function editCategory(id) {
             return;
         }
 
+        // Cargar dispositivos disponibles
+        const devices = await apiRequest('/devices');
+
         const modal = document.getElementById('genericModal');
         document.getElementById('genericModalTitle').textContent = 'Editar Categoría';
         
@@ -672,6 +677,16 @@ async function editCategory(id) {
             <div class="form-group">
                 <label>Color</label>
                 <input type="color" id="categoryColor" class="form-control" value="${category.color || '#007bff'}">
+            </div>
+            <div class="form-group">
+                <label>Dispositivo responsable (opcional)</label>
+                <select id="categoryDevice" class="form-control">
+                    <option value="">Sin dispositivo asignado</option>
+                    ${devices.devices.map(device => 
+                        `<option value="${device.id}" ${category.dispositivo_id === device.id ? 'selected' : ''}>${device.nombre_dispositivo}</option>`
+                    ).join('')}
+                </select>
+                <small class="form-text text-muted">Los mensajes de esta categoría se enviarán desde el dispositivo seleccionado</small>
             </div>
         `;
 
@@ -690,6 +705,7 @@ async function updateCategory(id) {
     const nombre = document.getElementById('categoryName').value;
     const descripcion = document.getElementById('categoryDescription').value;
     const color = document.getElementById('categoryColor').value;
+    const dispositivo_id = document.getElementById('categoryDevice').value || null;
 
     if (!nombre) {
         showAlert('El nombre es requerido', 'error');
@@ -699,7 +715,7 @@ async function updateCategory(id) {
     try {
         await apiRequest(`/categories/${id}`, {
             method: 'PUT',
-            body: JSON.stringify({ nombre, descripcion, color })
+            body: JSON.stringify({ nombre, descripcion, color, dispositivo_id })
         });
 
         showAlert('Categoría actualizada', 'success');
