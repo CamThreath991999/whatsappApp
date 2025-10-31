@@ -1,4 +1,5 @@
 -- Base de datos para el sistema de mensajería masiva
+-- Schema consolidado con todas las migraciones integradas
 CREATE DATABASE IF NOT EXISTS whatsapp_masivo CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE whatsapp_masivo;
 
@@ -54,6 +55,8 @@ CREATE TABLE IF NOT EXISTS contactos (
     nombre VARCHAR(100),
     telefono VARCHAR(20) NOT NULL,
     telefono_formateado VARCHAR(30),
+    foto_perfil VARCHAR(500),
+    fecha_foto TIMESTAMP NULL,
     estado ENUM('pendiente', 'agregado', 'bloqueado', 'invalido') DEFAULT 'pendiente',
     metadata JSON,
     fecha_agregado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -62,7 +65,8 @@ CREATE TABLE IF NOT EXISTS contactos (
     FOREIGN KEY (categoria_id) REFERENCES categorias(id) ON DELETE SET NULL,
     INDEX idx_usuario (usuario_id),
     INDEX idx_categoria (categoria_id),
-    INDEX idx_telefono (telefono)
+    INDEX idx_telefono (telefono),
+    INDEX idx_foto_perfil (foto_perfil)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Tabla de campañas
@@ -79,6 +83,10 @@ CREATE TABLE IF NOT EXISTS campanas (
     total_mensajes INT DEFAULT 0,
     mensajes_enviados INT DEFAULT 0,
     mensajes_fallidos INT DEFAULT 0,
+    horario_inicio TIME DEFAULT '08:00:00' COMMENT 'Hora inicio de envío (ej: 08:00:00)',
+    horario_fin TIME DEFAULT '19:00:00' COMMENT 'Hora fin de envío (ej: 19:00:00)',
+    max_mensajes_dia INT DEFAULT 300 COMMENT 'Máximo de mensajes por día',
+    distribucion_automatica BOOLEAN DEFAULT TRUE COMMENT 'Distribuir automáticamente en el horario',
     configuracion JSON,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE,
@@ -98,6 +106,7 @@ CREATE TABLE IF NOT EXISTS mensajes (
     error_mensaje TEXT,
     observacion VARCHAR(255),
     metadata JSON,
+    numero_invalido BOOLEAN DEFAULT FALSE COMMENT 'Si el número no existe o es inválido',
     fecha_programado TIMESTAMP NULL,
     fecha_envio TIMESTAMP NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -109,10 +118,6 @@ CREATE TABLE IF NOT EXISTS mensajes (
     INDEX idx_estado (estado),
     INDEX idx_dispositivo (dispositivo_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- Agregar campos si no existen (para bases de datos existentes)
-ALTER TABLE mensajes ADD COLUMN IF NOT EXISTS observacion VARCHAR(255) AFTER error_mensaje;
-ALTER TABLE mensajes ADD COLUMN IF NOT EXISTS metadata JSON AFTER observacion;
 
 -- Tabla de chats (conversaciones)
 CREATE TABLE IF NOT EXISTS chats (
@@ -130,6 +135,20 @@ CREATE TABLE IF NOT EXISTS chats (
     FOREIGN KEY (dispositivo_id) REFERENCES dispositivos(id) ON DELETE SET NULL,
     INDEX idx_usuario (usuario_id),
     INDEX idx_contacto (contacto_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Tabla de notas persistentes
+CREATE TABLE IF NOT EXISTS notas (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id INT NOT NULL,
+    titulo VARCHAR(200) NOT NULL,
+    contenido TEXT,
+    color VARCHAR(7) DEFAULT '#ffc107',
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+    INDEX idx_usuario (usuario_id),
+    INDEX idx_fecha_creacion (fecha_creacion)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Tabla de historial de comportamiento humano
@@ -159,4 +178,3 @@ CREATE TABLE IF NOT EXISTS system_logs (
 -- Usuario administrador por defecto (password: admin123)
 INSERT INTO usuarios (username, password, nombre_completo, email, rol) 
 VALUES ('admin', '$2a$10$xQPXJjKjK8LqXxR9GhGYYOzZhzKZfYHZyHvPJZLvKvDZhYNQDYQWK', 'Administrador', 'admin@sistema.com', 'admin');
-
