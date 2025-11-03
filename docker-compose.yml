@@ -17,7 +17,6 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-      - ./database/migration_campaign_config.sql:/docker-entrypoint-initdb.d/02-migration.sql
     ports:
       - "3306:3306"
     networks:
