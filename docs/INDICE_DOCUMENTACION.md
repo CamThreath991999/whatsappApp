@@ -44,6 +44,45 @@ Guía de navegación para toda la documentación del sistema.
 
 ---
 
+#### [PASOS_COMPLETOS_DESPLIEGUE.md](PASOS_COMPLETOS_DESPLIEGUE.md) - Pasos Completos de Despliegue
+**Qué contiene:**
+- Lista completa de pasos desde cero
+- Configuración de servidor NFS paso a paso
+- Configuración de Kubernetes
+- Clonado desde GitHub
+- Configuración de secretos y variables
+- Construcción y despliegue
+- Verificación y pruebas
+- Troubleshooting completo
+
+**Cuándo leerlo:** Para seguir el despliegue completo paso a paso desde GitHub
+
+---
+
+#### [LISTA_PASOS_SIMPLE.md](LISTA_PASOS_SIMPLE.md) - Lista Simple de Pasos
+**Qué contiene:**
+- Lista numerada simple de todos los pasos
+- Comandos listos para copiar y pegar
+- Checklist final
+- Comandos útiles de referencia
+
+**Cuándo leerlo:** Para tener una lista rápida de referencia durante el despliegue
+
+---
+
+#### [GUIA_RAPIDA_K8S_MULTI_PC.md](GUIA_RAPIDA_K8S_MULTI_PC.md) - **🆕 Guía Rápida Kubernetes Multi-PC**
+**Qué contiene:**
+- Pasos y comandos esenciales para desplegar
+- Configuración de servidor NFS paso a paso
+- Comandos listos para copiar/pegar
+- Verificación y pruebas multi-PC
+- Comandos útiles de mantenimiento
+- Solución de problemas comunes
+
+**Cuándo leerlo:** ⭐ **PRIMERA OPCIÓN** - Para acceder desde distintas PCs usando una sola sesión WhatsApp
+
+---
+
 #### [GUIA_RAPIDA_KUBERNETES.md](GUIA_RAPIDA_KUBERNETES.md) - Guía Rápida Kubernetes
 **Qué contiene:**
 - Resumen de pasos principales
@@ -263,13 +302,14 @@ Guía de navegación para toda la documentación del sistema.
 
 ---
 
-### ☸️ Caso 7: Despliegue en Kubernetes
+### ☸️ Caso 7: Despliegue en Kubernetes Multi-PC
 
 **Ruta recomendada:**
-1. [GUIA_RAPIDA_KUBERNETES.md](GUIA_RAPIDA_KUBERNETES.md) - Para empezar rápido
-2. [KUBERNETES_DEPLOYMENT.md](KUBERNETES_DEPLOYMENT.md) - Para despliegue completo
-3. `k8s/README.md` - Documentación de manifiestos
-4. `k8s/deploy.sh` o `k8s/deploy.bat` - Scripts automatizados
+1. **[GUIA_RAPIDA_K8S_MULTI_PC.md](GUIA_RAPIDA_K8S_MULTI_PC.md) ⭐ NUEVA** - Pasos y comandos para acceder desde distintas PCs
+2. [LISTA_PASOS_SIMPLE.md](LISTA_PASOS_SIMPLE.md) - Lista simple de referencia
+3. [PASOS_COMPLETOS_DESPLIEGUE.md](PASOS_COMPLETOS_DESPLIEGUE.md) - Guía detallada desde cero
+4. [KUBERNETES_DEPLOYMENT.md](KUBERNETES_DEPLOYMENT.md) - Documentación técnica completa
+5. `k8s/deploy.sh` o `k8s/deploy.bat` - Scripts automatizados
 
 ---
 
@@ -377,10 +417,16 @@ Guía de navegación para toda la documentación del sistema.
 → [ESTRUCTURA_PROYECTO.md](ESTRUCTURA_PROYECTO.md) sección "Tecnologías Usadas"
 
 ### ¿Cómo despliego en Kubernetes?
-→ [GUIA_RAPIDA_KUBERNETES.md](GUIA_RAPIDA_KUBERNETES.md) o [KUBERNETES_DEPLOYMENT.md](KUBERNETES_DEPLOYMENT.md)
+→ [GUIA_RAPIDA_K8S_MULTI_PC.md](GUIA_RAPIDA_K8S_MULTI_PC.md) ⭐ **NUEVA** o [KUBERNETES_DEPLOYMENT.md](KUBERNETES_DEPLOYMENT.md)
+
+### ¿Cómo accedo desde distintas PCs con una sola sesión WhatsApp?
+→ [GUIA_RAPIDA_K8S_MULTI_PC.md](GUIA_RAPIDA_K8S_MULTI_PC.md) ⭐ **NUEVA** - Guía práctica con comandos
 
 ### ¿Cómo comparto sesiones entre múltiples PCs?
-→ [KUBERNETES_DEPLOYMENT.md](KUBERNETES_DEPLOYMENT.md) o [DESPLIEGUE_MULTI_PC.md](DESPLIEGUE_MULTI_PC.md)
+→ [GUIA_RAPIDA_K8S_MULTI_PC.md](GUIA_RAPIDA_K8S_MULTI_PC.md) ⭐ **NUEVA** para setup rápido o [PASOS_COMPLETOS_DESPLIEGUE.md](PASOS_COMPLETOS_DESPLIEGUE.md) para detalles
+
+### ¿Tengo el código en GitHub, cómo lo despliego?
+→ [GUIA_RAPIDA_K8S_MULTI_PC.md](GUIA_RAPIDA_K8S_MULTI_PC.md) ⭐ **NUEVA** o [PASOS_COMPLETOS_DESPLIEGUE.md](PASOS_COMPLETOS_DESPLIEGUE.md)
 
 ---
 
