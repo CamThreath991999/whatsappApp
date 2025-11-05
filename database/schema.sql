@@ -177,4 +177,4 @@ CREATE TABLE IF NOT EXISTS system_logs (
 
 -- Usuario administrador por defecto (password: admin123)
 INSERT INTO usuarios (username, password, nombre_completo, email, rol) 
-VALUES ('admin', '$2a$10$xQPXJjKjK8LqXxR9GhGYYOzZhzKZfYHZyHvPJZLvKvDZhYNQDYQWK', 'Administrador', 'admin@sistema.com', 'admin');
+VALUES ('admin', '$2a$10$6GS3ZwheAhA6B5.c6MEFOO.o.ghZrKFrcmcuQPJr9YDOah38xspQG', 'Administrador', 'admin@sistema.com', 'admin');

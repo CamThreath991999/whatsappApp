@@ -10,12 +10,18 @@ const { pool } = require('../../config/database');
 const redisHelper = require('../utils/redisHelper');
 
 class WhatsAppServiceBaileys {
-    constructor(io) {
+    constructor(io, campaignService = null) {
         this.io = io;
+        this.campaignService = campaignService; // Referencia opcional al campaignService
         this.clients = new Map(); // sessionId -> socket
         this.authStates = new Map(); // sessionId -> authState
         this.reconnectAttempts = new Map(); // sessionId -> número de intentos
         this.MAX_RECONNECT_ATTEMPTS = 5; // Máximo 5 intentos de reconexión
+    }
+
+    // Método para establecer referencia al campaignService
+    setCampaignService(campaignService) {
+        this.campaignService = campaignService;
     }
 
     async createSession(sessionId, userId, deviceId) {
@@ -139,15 +145,48 @@ class WhatsAppServiceBaileys {
                     
                     const phoneNumber = sock.user.id.split(':')[0];
                     
-                    await pool.execute(
-                        'UPDATE dispositivos SET estado = ?, numero_telefono = ? WHERE session_id = ?',
-                        ['conectado', phoneNumber, sessionId]
+                    // Obtener deviceId desde la BD
+                    const [deviceInfo] = await pool.execute(
+                        'SELECT id FROM dispositivos WHERE session_id = ?',
+                        [sessionId]
                     );
 
-                    this.io.emit(`authenticated-${sessionId}`, {
-                        sessionId,
-                        phoneNumber
-                    });
+                    if (deviceInfo.length > 0) {
+                        const deviceId = deviceInfo[0].id;
+                        
+                        await pool.execute(
+                            'UPDATE dispositivos SET estado = ?, numero_telefono = ? WHERE session_id = ?',
+                            ['conectado', phoneNumber, sessionId]
+                        );
+
+                        this.io.emit(`authenticated-${sessionId}`, {
+                            sessionId,
+                            phoneNumber,
+                            deviceId
+                        });
+
+                        // 🔥 NUEVO: Notificar al campaignService para redistribución automática
+                        if (this.campaignService) {
+                            // Esperar un pequeño delay para asegurar que la BD está actualizada
+                            setTimeout(async () => {
+                                try {
+                                    await this.campaignService.handleNewDeviceConnected(deviceId);
+                                } catch (error) {
+                                    console.error('Error en redistribución automática:', error);
+                                }
+                            }, 2000);
+                        }
+                    } else {
+                        await pool.execute(
+                            'UPDATE dispositivos SET estado = ?, numero_telefono = ? WHERE session_id = ?',
+                            ['conectado', phoneNumber, sessionId]
+                        );
+
+                        this.io.emit(`authenticated-${sessionId}`, {
+                            sessionId,
+                            phoneNumber
+                        });
+                    }
                 }
             });
 

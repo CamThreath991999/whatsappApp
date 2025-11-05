@@ -776,10 +776,16 @@ class CampaignService {
             console.log(`      🕐 Nuevas pausas: ${this.antiSpam.config.minPauseBetweenMessages/1000}s - ${this.antiSpam.config.maxPauseBetweenMessages/1000}s`);
             console.log(`      ⏰ Probabilidad pausas largas: ${this.antiSpam.config.longPauseProbability * 100}%`);
 
-            // 🔥 NUEVO: Regenerar plan de envío con nueva distribución
+                // 🔥 NUEVO: Regenerar plan de envío con nueva distribución
             const campaignData = this.activeCampaigns.get(campaignId);
             if (campaignData) {
                 console.log(`   🔄 Regenerando plan de envío...`);
+                
+                // Obtener configuración de campaña
+                const [campaignConfig] = await pool.execute(
+                    'SELECT * FROM campanas WHERE id = ?',
+                    [campaignId]
+                );
                 
                 // Obtener TODOS los mensajes pendientes con nueva distribución
                 const [allPendingMessages] = await pool.execute(
@@ -795,7 +801,8 @@ class CampaignService {
                 // Generar nuevo plan con menos dispositivos
                 const newPlan = this.antiSpam.generateSendingPlan(
                     allPendingMessages,
-                    activeDevices.length
+                    activeDevices,
+                    campaignConfig[0]
                 );
 
                 // Actualizar el plan en el Map
@@ -819,6 +826,212 @@ class CampaignService {
 
         } catch (error) {
             console.error('Error en redistribución:', error);
+        }
+    }
+
+    // 🔥 NUEVO: Detectar dispositivo nuevo y redistribuir mensajes pendientes de campañas activas
+    async handleNewDeviceConnected(deviceId) {
+        try {
+            console.log(`\n🆕 === DISPOSITIVO NUEVO CONECTADO: ${deviceId} ===`);
+            
+            // Obtener información del dispositivo
+            const [devices] = await pool.execute(
+                'SELECT * FROM dispositivos WHERE id = ? AND estado = ?',
+                [deviceId, 'conectado']
+            );
+
+            if (devices.length === 0) {
+                console.log('   ⚠️ Dispositivo no encontrado o no está conectado');
+                return;
+            }
+
+            const newDevice = devices[0];
+
+            // Buscar todas las campañas activas (en_proceso)
+            const [activeCampaigns] = await pool.execute(
+                `SELECT DISTINCT c.id, c.nombre, c.usuario_id
+                 FROM campanas c
+                 INNER JOIN mensajes m ON c.id = m.campana_id
+                 WHERE c.estado = 'en_proceso' AND m.estado = 'pendiente'
+                 GROUP BY c.id`,
+                []
+            );
+
+            if (activeCampaigns.length === 0) {
+                console.log('   ℹ️ No hay campañas activas para redistribuir');
+                return;
+            }
+
+            console.log(`   📊 Encontradas ${activeCampaigns.length} campaña(s) activa(s)`);
+
+            // Para cada campaña activa, redistribuir mensajes pendientes
+            for (const campaign of activeCampaigns) {
+                console.log(`\n   🔄 Procesando campaña: ${campaign.nombre} (ID: ${campaign.id})`);
+
+                // Obtener categoría de la campaña (si existe)
+                const [campaignMessages] = await pool.execute(
+                    `SELECT DISTINCT c.categoria_id 
+                     FROM mensajes m
+                     JOIN contactos c ON m.contacto_id = c.id
+                     WHERE m.campana_id = ? AND m.estado = 'pendiente'
+                     LIMIT 1`,
+                    [campaign.id]
+                );
+
+                // Obtener TODOS los dispositivos conectados de la misma categoría (o todos si no hay categoría)
+                let connectedDevices;
+                if (campaignMessages.length > 0 && campaignMessages[0].categoria_id) {
+                    const categoriaId = campaignMessages[0].categoria_id;
+                    console.log(`   📁 Categoría encontrada: ${categoriaId}`);
+                    
+                    // Obtener dispositivos conectados que pertenecen a esta categoría
+                    const [devicesByCategory] = await pool.execute(
+                        `SELECT DISTINCT d.* 
+                         FROM dispositivos d
+                         JOIN categoria_dispositivo cd ON d.id = cd.dispositivo_id
+                         WHERE cd.categoria_id = ? AND d.estado = 'conectado'`,
+                        [categoriaId]
+                    );
+
+                    // Si no hay dispositivos por categoría, usar todos los conectados
+                    if (devicesByCategory.length > 0) {
+                        connectedDevices = devicesByCategory;
+                    } else {
+                        // Todos los dispositivos conectados (puede haber una sola categoría para todos)
+                        const [allConnected] = await pool.execute(
+                            'SELECT * FROM dispositivos WHERE estado = ? AND usuario_id = ?',
+                            ['conectado', campaign.usuario_id]
+                        );
+                        connectedDevices = allConnected;
+                    }
+                } else {
+                    // Sin categoría específica, usar todos los dispositivos conectados del usuario
+                    const [allConnected] = await pool.execute(
+                        'SELECT * FROM dispositivos WHERE estado = ? AND usuario_id = ?',
+                        ['conectado', campaign.usuario_id]
+                    );
+                    connectedDevices = allConnected;
+                }
+
+                // Asegurar que el nuevo dispositivo esté incluido
+                if (!connectedDevices.find(d => d.id === deviceId)) {
+                    connectedDevices.push(newDevice);
+                }
+
+                console.log(`   📱 Dispositivos conectados disponibles: ${connectedDevices.length}`);
+
+                if (connectedDevices.length === 0) {
+                    console.log('   ⚠️ No hay dispositivos conectados para esta campaña');
+                    continue;
+                }
+
+                // Obtener TODOS los mensajes pendientes de esta campaña
+                const [allPendingMessages] = await pool.execute(
+                    `SELECT m.id, m.dispositivo_id, m.campana_id
+                     FROM mensajes m
+                     WHERE m.campana_id = ? AND m.estado = 'pendiente'`,
+                    [campaign.id]
+                );
+
+                if (allPendingMessages.length === 0) {
+                    console.log('   ℹ️ No hay mensajes pendientes en esta campaña');
+                    continue;
+                }
+
+                console.log(`   📨 Mensajes pendientes: ${allPendingMessages.length}`);
+
+                // Redistribuir TODOS los mensajes pendientes equitativamente entre TODOS los dispositivos conectados
+                // Esto incluye el nuevo dispositivo
+                let deviceIndex = 0;
+                let redistributedCount = 0;
+
+                for (const message of allPendingMessages) {
+                    const targetDevice = connectedDevices[deviceIndex];
+                    
+                    await pool.execute(
+                        'UPDATE mensajes SET dispositivo_id = ? WHERE id = ?',
+                        [targetDevice.id, message.id]
+                    );
+
+                    deviceIndex = (deviceIndex + 1) % connectedDevices.length;
+                    redistributedCount++;
+                }
+
+                console.log(`   ✅ Redistribución completada: ${redistributedCount} mensajes redistribuidos equitativamente`);
+
+                // Mostrar distribución final
+                const [finalDistribution] = await pool.execute(
+                    `SELECT d.id, d.nombre_dispositivo, COUNT(*) as total 
+                     FROM mensajes m 
+                     JOIN dispositivos d ON m.dispositivo_id = d.id 
+                     WHERE m.campana_id = ? AND m.estado = 'pendiente'
+                     GROUP BY d.id`,
+                    [campaign.id]
+                );
+
+                console.log(`   📊 Distribución final:`);
+                finalDistribution.forEach(d => {
+                    const percentage = ((d.total / allPendingMessages.length) * 100).toFixed(1);
+                    const isNew = d.id === deviceId ? ' 🆕' : '';
+                    console.log(`      📱 Dispositivo ${d.id} (${d.nombre_dispositivo}): ${d.total} mensajes (${percentage}%)${isNew}`);
+                });
+
+                // Si la campaña está en ejecución, regenerar el plan de envío
+                const campaignData = this.activeCampaigns.get(campaign.id);
+                if (campaignData) {
+                    console.log(`   🔄 Regenerando plan de envío con ${connectedDevices.length} dispositivo(s)...`);
+                    
+                    // Obtener mensajes con metadata completa
+                    const [messagesWithMetadata] = await pool.execute(
+                        `SELECT m.*, c.telefono, c.nombre, d.session_id 
+                         FROM mensajes m
+                         JOIN contactos c ON m.contacto_id = c.id
+                         JOIN dispositivos d ON m.dispositivo_id = d.id
+                         WHERE m.campana_id = ? AND m.estado = 'pendiente'
+                         ORDER BY m.id`,
+                        [campaign.id]
+                    );
+
+                    // Obtener configuración de campaña
+                    const [campaignConfig] = await pool.execute(
+                        'SELECT * FROM campanas WHERE id = ?',
+                        [campaign.id]
+                    );
+
+                    // Generar nuevo plan con todos los dispositivos disponibles
+                    const newPlan = this.antiSpam.generateSendingPlan(
+                        messagesWithMetadata,
+                        connectedDevices,
+                        campaignConfig[0]
+                    );
+
+                    // Actualizar el plan y los dispositivos en el Map
+                    campaignData.plan = newPlan;
+                    campaignData.devices = connectedDevices;
+                    campaignData.currentStep = campaignData.currentStep || 0; // No reiniciar, continuar desde donde iba
+                    
+                    console.log(`   ✅ Nuevo plan generado: ${newPlan.length} pasos (continúa desde paso ${campaignData.currentStep})`);
+
+                    // Emitir evento
+                    this.io.emit(`campaign-device-added-${campaign.id}`, {
+                        newDeviceId: deviceId,
+                        newDeviceName: newDevice.nombre_dispositivo,
+                        totalDevices: connectedDevices.length,
+                        redistributedCount,
+                        finalDistribution,
+                        message: `Dispositivo nuevo "${newDevice.nombre_dispositivo}" agregado. ${redistributedCount} mensajes redistribuidos equitativamente.`
+                    });
+                } else {
+                    // Campaña no está en ejecución en memoria, solo guardar la redistribución
+                    console.log(`   ℹ️ Campaña no está en ejecución en memoria, redistribución guardada en BD`);
+                }
+            }
+
+            console.log(`\n✅ === FIN PROCESAMIENTO DISPOSITIVO NUEVO ===\n`);
+
+        } catch (error) {
+            console.error('❌ Error procesando dispositivo nuevo:', error);
+            console.error(error.stack);
         }
     }
 }

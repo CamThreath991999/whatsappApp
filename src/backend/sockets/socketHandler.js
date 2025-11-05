@@ -9,6 +9,9 @@ function initializeSocketHandlers(io) {
     // Inicializar servicios
     whatsappService = new WhatsAppService(io);
     campaignService = new CampaignService(whatsappService, io);
+    
+    // 🔥 NUEVO: Establecer referencia cruzada para redistribución automática
+    whatsappService.setCampaignService(campaignService);
 
     io.on('connection', (socket) => {
         console.log('✅ Cliente conectado:', socket.id);
