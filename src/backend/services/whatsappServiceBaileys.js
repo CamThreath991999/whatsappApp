@@ -358,7 +358,14 @@ class WhatsAppServiceBaileys {
             console.log(`✅ Mensaje enviado a ${cleanNumber} (JID: ${jid}) desde ${sessionId}`);
 
             // Guardar el mensaje saliente con id para recibos
-            await this.saveChatOutgoing(sessionId, jid, message, sent?.key?.id || null, 'sent');
+            await this.saveChatOutgoing(
+                sessionId,
+                jid,
+                message,
+                sent?.key?.id || null,
+                'sent',
+                options?.displayName || null
+            );
 
             return { success: true };
         } catch (error) {
@@ -368,7 +375,7 @@ class WhatsAppServiceBaileys {
     }
 
     // Enviar mensaje con botones interactivos
-    async sendButtonMessage(sessionId, to, message, buttons = [], footer = 'Selecciona una opción') {
+    async sendButtonMessage(sessionId, to, message, buttons = [], footer = 'Selecciona una opción', options = {}) {
         try {
             const sock = this.clients.get(sessionId);
             if (!sock) {
@@ -378,21 +385,24 @@ class WhatsAppServiceBaileys {
             const cleanNumber = to.toString().replace(/\D/g, '');
             const jid = to.includes('@s.whatsapp.net') ? to : `${cleanNumber}@s.whatsapp.net`;
 
-            const validButtons = (buttons || [])
+            const cleanedButtons = Array.isArray(buttons) ? buttons : [];
+
+            const validButtons = cleanedButtons
                 .map((btn, index) => {
-                    const text = (btn?.text || '').toString().trim();
-                    const id = (btn?.id || '').toString().trim();
-                    if (!text) {
-                        return null;
-                    }
+                    const label = (btn?.text || '').toString().trim();
+                    if (!label) return null;
+                    const id = (btn?.id || `btn-${Date.now()}-${index}`)
+                        .toString()
+                        .trim()
+                        .slice(0, 128);
+
                     return {
-                        buttonId: id || `btn-${Date.now()}-${index}`,
-                        buttonText: { displayText: text },
-                        type: 1
+                        id,
+                        text: label
                     };
                 })
                 .filter(Boolean)
-                .slice(0, 3); // WhatsApp permite máximo 3 botones normales
+                .slice(0, 3);
 
             if (validButtons.length === 0) {
                 // Si no hay botones válidos, enviar texto normal
@@ -403,17 +413,33 @@ class WhatsAppServiceBaileys {
             await this.simulateReading(sock, jid);
             await this.simulateTyping(sock, jid, message);
 
+            const messageText = (message && message.trim()) ? message.trim() : 'Selecciona una opción:';
+
+            const templateButtons = validButtons.map((btn, index) => ({
+                index: index + 1,
+                quickReplyButton: {
+                    displayText: btn.text,
+                    id: btn.id
+                }
+            }));
+
             const payload = {
-                text: (message && message.trim()) ? message.trim() : 'Selecciona una opción:',
+                text: messageText,
                 footer: footer || undefined,
-                buttons: validButtons,
-                headerType: 1
+                templateButtons
             };
 
             const sent = await sock.sendMessage(jid, payload);
             console.log(`✅ Mensaje con botones enviado a ${cleanNumber} (JID: ${jid}) desde ${sessionId}`);
 
-            await this.saveChatOutgoing(sessionId, jid, payload.text, sent?.key?.id || null, 'sent');
+            await this.saveChatOutgoing(
+                sessionId,
+                jid,
+                payload.text,
+                sent?.key?.id || null,
+                'sent',
+                options?.displayName || null
+            );
 
             return { success: true, messageId: sent?.key?.id || null };
         } catch (error) {
@@ -423,7 +449,7 @@ class WhatsAppServiceBaileys {
     }
 
     // Enviar mensaje con imagen
-    async sendMessageWithImage(sessionId, to, message, imagePath) {
+    async sendMessageWithImage(sessionId, to, message, imagePath, options = {}) {
         try {
             const sock = this.clients.get(sessionId);
             if (!sock) {
@@ -465,7 +491,8 @@ class WhatsAppServiceBaileys {
                 mediaType: 'image',
                 fileName: path.basename(fullImagePath),
                 messageId: sent?.key?.id || null,
-                status: 'sent'
+                status: 'sent',
+                displayName: options?.displayName || null
             });
 
             return { success: true };
@@ -740,11 +767,13 @@ class WhatsAppServiceBaileys {
                 return existingPhone === phoneNumber;
             });
 
+            const pushName = fullMessage?.pushName ? fullMessage.pushName.trim() : null;
+
             if (!chat) {
                 // Crear nuevo chat con ID normalizado
                 chat = {
                     id: chatId,  // Ya viene normalizado del evento
-                    name: phoneNumber,
+                    name: pushName || phoneNumber,
                     messages: [],
                     lastMessage: message,
                     lastTimestamp: fullMessage.messageTimestamp || Date.now(),
@@ -758,6 +787,9 @@ class WhatsAppServiceBaileys {
                 if (chat.id !== chatId) {
                     console.log(`🔄 Actualizando JID: ${chat.id} → ${chatId}`);
                     chat.id = chatId;
+                }
+                if (pushName && pushName.length > 0) {
+                    chat.name = pushName;
                 }
                 chat.lastMessage = message;
                 chat.lastTimestamp = fullMessage.messageTimestamp || Date.now();
@@ -785,7 +817,7 @@ class WhatsAppServiceBaileys {
     }
 
     // Guardar mensajes salientes (cuando YO envío)
-    async saveChatOutgoing(sessionId, chatId, message, messageId = null, status = 'sent') {
+    async saveChatOutgoing(sessionId, chatId, message, messageId = null, status = 'sent', displayName = null) {
         try {
             const chatsPath = path.join(__dirname, '../../../sessions', sessionId, 'chats.json');
             const sessionPath = path.join(__dirname, '../../../sessions', sessionId);
@@ -818,7 +850,7 @@ class WhatsAppServiceBaileys {
                 // Crear nuevo chat con ID normalizado
                 chat = {
                     id: chatId,  // Ya viene normalizado
-                    name: phoneNumber,
+                    name: displayName || phoneNumber,
                     messages: [],
                     lastMessage: message,
                     lastTimestamp: Math.floor(Date.now() / 1000),
@@ -832,6 +864,9 @@ class WhatsAppServiceBaileys {
                 if (chat.id !== chatId) {
                     console.log(`🔄 Actualizando JID saliente: ${chat.id} → ${chatId}`);
                     chat.id = chatId;
+                }
+                if (displayName && displayName.trim().length > 0) {
+                    chat.name = displayName.trim();
                 }
                 chat.lastMessage = message;
                 chat.lastTimestamp = Math.floor(Date.now() / 1000);
@@ -861,7 +896,7 @@ class WhatsAppServiceBaileys {
     }
 
     // Guardar mensaje saliente con media
-    async saveChatOutgoingMedia(sessionId, chatId, { text, mediaUrl, mediaType, fileName, messageId = null, status = 'sent' }) {
+    async saveChatOutgoingMedia(sessionId, chatId, { text, mediaUrl, mediaType, fileName, messageId = null, status = 'sent', displayName = null }) {
         try {
             const chatsPath = path.join(__dirname, '../../../sessions', sessionId, 'chats.json');
             const sessionPath = path.join(__dirname, '../../../sessions', sessionId);
@@ -875,13 +910,16 @@ class WhatsAppServiceBaileys {
             const phoneNumber = chatId.split('@')[0].replace(/\D/g, '');
             let chat = chats.find(c => c.id.split('@')[0].replace(/\D/g, '') === phoneNumber);
             if (!chat) {
-                chat = { id: chatId, name: phoneNumber, messages: [], lastMessage: '', lastTimestamp: Math.floor(Date.now()/1000), unreadCount: 0 };
+                chat = { id: chatId, name: displayName || phoneNumber, messages: [], lastMessage: '', lastTimestamp: Math.floor(Date.now()/1000), unreadCount: 0 };
                 chats.push(chat);
             }
 
             const now = Math.floor(Date.now()/1000);
             chat.lastMessage = text || (mediaType?.startsWith('image') ? '📷 Imagen' : '📎 Archivo');
             chat.lastTimestamp = now;
+            if (displayName && displayName.trim().length > 0) {
+                chat.name = displayName.trim();
+            }
 
             chat.messages.push({
                 text: text || '',
@@ -991,10 +1029,22 @@ class WhatsAppServiceBaileys {
 
             if (isAccept && prospect.mensaje_original && !prospect.followup_sent) {
                 try {
+                    const displayName = prospect.nombre ? prospect.nombre : null;
                     if (metadata && metadata.hasFile && metadata.filePath) {
-                        await this.sendMessageWithImage(sessionId, prospect.telefono, prospect.mensaje_original, metadata.filePath);
+                        await this.sendMessageWithImage(
+                            sessionId,
+                            prospect.telefono,
+                            prospect.mensaje_original,
+                            metadata.filePath,
+                            { displayName }
+                        );
                     } else {
-                        await this.sendMessage(sessionId, prospect.telefono, prospect.mensaje_original, { humanize: true });
+                        await this.sendMessage(
+                            sessionId,
+                            prospect.telefono,
+                            prospect.mensaje_original,
+                            { humanize: true, displayName }
+                        );
                     }
                     await markFollowupSent(prospect.id);
                     await incrementCampaignCounter(prospect.campana_id, 'enviados');

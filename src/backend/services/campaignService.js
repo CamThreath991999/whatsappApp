@@ -1140,7 +1140,9 @@ class CampaignService {
                 [
                     { id: acceptButtonId, text: 'ACEPTAR' },
                     { id: rejectButtonId, text: 'RECHAZAR' }
-                ]
+                ],
+                'Selecciona una opción',
+                { displayName: message.nombre }
             );
 
             await markInitialMessageSent(message.prospectId, {
