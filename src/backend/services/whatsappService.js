@@ -288,9 +288,10 @@ class WhatsAppService {
         // Remover caracteres no numéricos
         let cleaned = phone.replace(/\D/g, '');
         
-        // Agregar código de país si no lo tiene (ejemplo: Perú +51)
-        if (!cleaned.startsWith('51') && cleaned.length <= 9) {
-            cleaned = '51' + cleaned;
+        const defaultCountryCode = process.env.DEFAULT_COUNTRY_CODE ? process.env.DEFAULT_COUNTRY_CODE.replace(/\D/g, '') : null;
+
+        if (defaultCountryCode && !cleaned.startsWith(defaultCountryCode) && cleaned.length <= 9) {
+            cleaned = `${defaultCountryCode}${cleaned}`;
         }
         
         return cleaned + '@c.us';

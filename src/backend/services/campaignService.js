@@ -2,6 +2,13 @@ const { pool } = require('../../config/database');
 const { redisHelper } = require('../../config/redis');
 const AntiSpamService = require('./antiSpamService');
 const HumanBehaviorService = require('./humanBehaviorService');
+const {
+    ensureProspectSchema,
+    getPendingProspects,
+    markInitialMessageSent,
+    generateInitialMessage,
+    incrementCampaignCounter
+} = require('./prospectService');
 
 class CampaignService {
     constructor(whatsappService, io) {
@@ -121,29 +128,77 @@ class CampaignService {
 
             const campaign = campaigns[0];
 
-            // Obtener mensajes pendientes (incluir metadata para imágenes)
-            const [messages] = await pool.execute(
-                `SELECT m.*, c.telefono, c.nombre, d.session_id 
-                 FROM mensajes m
-                 JOIN contactos c ON m.contacto_id = c.id
-                 JOIN dispositivos d ON m.dispositivo_id = d.id
-                 WHERE m.campana_id = ? AND m.estado = 'pendiente'
-                 ORDER BY m.id`,
-                [campaignId]
-            );
+            await ensureProspectSchema();
 
-            if (messages.length === 0) {
-                throw new Error('No hay mensajes pendientes en esta campaña');
-            }
+            // Obtener prospectos pendientes o mensajes tradicionales
+            const prospects = await getPendingProspects(campaignId);
+            let messages = [];
+            let devices = [];
 
-            // Obtener dispositivos únicos
-            const deviceIds = [...new Set(messages.map(m => m.dispositivo_id))];
-            const [devices] = await pool.execute(
-                `SELECT * FROM dispositivos WHERE id IN (${deviceIds.join(',')}) AND estado = 'conectado'`
-            );
+            if (prospects.length > 0) {
+                const deviceMap = new Map();
 
-            if (devices.length === 0) {
-                throw new Error('No hay dispositivos conectados para esta campaña');
+                prospects.forEach(prospect => {
+                    if (prospect.dispositivo_estado !== 'conectado') {
+                        console.warn(`⚠️ Dispositivo ${prospect.dispositivo_id} no está conectado. Prospecto ${prospect.id} omitido.`);
+                        return;
+                    }
+
+                    deviceMap.set(prospect.dispositivo_id, {
+                        id: prospect.dispositivo_id,
+                        session_id: prospect.session_id,
+                        nombre_dispositivo: prospect.nombre_dispositivo
+                    });
+
+                    messages.push({
+                        id: `prospect-${prospect.id}`,
+                        prospectId: prospect.id,
+                        campana_id: prospect.campana_id,
+                        telefono: prospect.telefono,
+                        nombre: prospect.nombre,
+                        categoria: prospect.categoria,
+                        mensaje: prospect.mensaje_original,
+                        dispositivo_id: prospect.dispositivo_id,
+                        session_id: prospect.session_id,
+                        metadata: prospect.metadata ? JSON.parse(prospect.metadata) : null,
+                        isProspect: true
+                    });
+                });
+
+                devices = Array.from(deviceMap.values());
+
+                if (messages.length === 0) {
+                    throw new Error('No hay prospectos disponibles para enviar (dispositivos desconectados)');
+                }
+            } else {
+                // Obtener mensajes pendientes (incluir metadata para imágenes)
+                const [dbMessages] = await pool.execute(
+                    `SELECT m.*, c.telefono, c.nombre, d.session_id 
+                     FROM mensajes m
+                     JOIN contactos c ON m.contacto_id = c.id
+                     JOIN dispositivos d ON m.dispositivo_id = d.id
+                     WHERE m.campana_id = ? AND m.estado = 'pendiente'
+                     ORDER BY m.id`,
+                    [campaignId]
+                );
+
+                if (dbMessages.length === 0) {
+                    throw new Error('No hay mensajes pendientes en esta campaña');
+                }
+
+                messages = dbMessages;
+
+                // Obtener dispositivos únicos
+                const deviceIds = [...new Set(dbMessages.map(m => m.dispositivo_id))];
+                const [dbDevices] = await pool.execute(
+                    `SELECT * FROM dispositivos WHERE id IN (${deviceIds.join(',')}) AND estado = 'conectado'`
+                );
+
+                if (dbDevices.length === 0) {
+                    throw new Error('No hay dispositivos conectados para esta campaña');
+                }
+
+                devices = dbDevices;
             }
 
             // Actualizar estado de campaña
@@ -289,10 +344,39 @@ class CampaignService {
                             throw new Error('Cliente no disponible');
                         }
 
+                        // Flujo especial para prospectos
+                        if (message.isProspect) {
+                            try {
+                                const result = await this.handleProspectInitialSend(message, campaignId);
+
+                                this.io.emit(`campaign-progress-${campaignId}`, {
+                                    type: 'prospect_initial_sent',
+                                    prospectId: message.prospectId,
+                                    telefono: message.telefono,
+                                    initialMessage: result.initialMessage
+                                });
+
+                                console.log(`✓ Mensaje inicial enviado a prospecto ${message.telefono}`);
+                            } catch (prospectError) {
+                                console.error(`✗ Error enviando mensaje inicial a prospecto ${message.telefono}:`, prospectError);
+                                await incrementCampaignCounter(campaignId, 'fallidos');
+                            }
+
+                            // Pequeña pausa entre prospectos para no saturar
+                            await this.antiSpam.sleep(
+                                this.antiSpam.randomInRange(500, 1200)
+                            );
+                            continue;
+                        }
+
                         // Verificar si hay archivo adjunto
                         let metadata = null;
                         try {
-                            metadata = message.metadata ? JSON.parse(message.metadata) : null;
+                            if (message.metadata && typeof message.metadata === 'string') {
+                                metadata = JSON.parse(message.metadata);
+                            } else if (message.metadata) {
+                                metadata = message.metadata;
+                            }
                         } catch (e) {
                             console.log('Error parseando metadata:', e);
                         }
@@ -1032,6 +1116,53 @@ class CampaignService {
         } catch (error) {
             console.error('❌ Error procesando dispositivo nuevo:', error);
             console.error(error.stack);
+        }
+    }
+
+    // Método para manejar el envío inicial de un prospecto
+    async handleProspectInitialSend(message, campaignId) {
+        try {
+            const sessionId = message.session_id;
+            const client = this.whatsappService.getClient(sessionId);
+
+            if (!client) {
+                throw new Error('Cliente no disponible para enviar mensaje inicial');
+            }
+
+            // Generar mensaje inicial
+            const initialMessage = await generateInitialMessage(message.telefono, message.nombre);
+
+            // Marcar el mensaje como enviado en la base de datos
+            await markInitialMessageSent(message.id);
+
+            // Enviar mensaje inicial
+            await this.whatsappService.sendMessage(
+                sessionId,
+                message.telefono,
+                initialMessage,
+                { humanize: true } // 🤖 ACTIVAR HUMANIZACIÓN
+            );
+
+            // Actualizar estado del mensaje
+            await pool.execute(
+                'UPDATE mensajes SET estado = ?, fecha_envio = NOW() WHERE id = ?',
+                ['enviado', message.id]
+            );
+
+            // Actualizar contador de campaña
+            await pool.execute(
+                'UPDATE campanas SET mensajes_enviados = mensajes_enviados + 1 WHERE id = ?',
+                [campaignId]
+            );
+
+            return {
+                initialMessage,
+                messageId: message.id
+            };
+
+        } catch (error) {
+            console.error(`✗ Error enviando mensaje inicial a prospecto ${message.telefono}:`, error);
+            throw error;
         }
     }
 }

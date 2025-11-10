@@ -8,6 +8,15 @@ const fs = require('fs');
 const path = require('path');
 const { pool } = require('../../config/database');
 const redisHelper = require('../utils/redisHelper');
+const {
+    ensureProspectSchema,
+    getProspectByButtonId,
+    getOrCreateCategory,
+    upsertContactFromProspect,
+    updateProspectResponse,
+    markFollowupSent,
+    incrementCampaignCounter
+} = require('./prospectService');
 
 class WhatsAppServiceBaileys {
     constructor(io, campaignService = null) {
@@ -229,7 +238,17 @@ class WhatsAppServiceBaileys {
             sock.ev.on('messages.upsert', async ({ messages, type }) => {
                 for (const msg of messages) {
                     if (msg.key.fromMe) continue; // Ignorar mensajes propios
-                    
+ 
+                    let buttonInfo = null;
+
+                    if (msg.message?.buttonsResponseMessage || msg.message?.interactiveResponseMessage) {
+                        buttonInfo = await this.processProspectButtonResponse(sessionId, msg);
+                        if (buttonInfo && buttonInfo.label) {
+                            msg.message = msg.message || {};
+                            msg.message.conversation = buttonInfo.label;
+                        }
+                    }
+
                     // 🔍 DEBUG COMPLETO - Mostrar toda la información del mensaje
                     console.log('\n📨 ========== MENSAJE RECIBIDO ==========');
                     console.log('Session:', sessionId);
@@ -344,6 +363,45 @@ class WhatsAppServiceBaileys {
             return { success: true };
         } catch (error) {
             console.error(`❌ Error enviando mensaje:`, error);
+            throw error;
+        }
+    }
+
+    // Enviar mensaje con botones interactivos
+    async sendButtonMessage(sessionId, to, message, buttons = []) {
+        try {
+            const sock = this.clients.get(sessionId);
+            if (!sock) {
+                throw new Error(`Sesión ${sessionId} no encontrada`);
+            }
+
+            const cleanNumber = to.toString().replace(/\D/g, '');
+            const jid = to.includes('@s.whatsapp.net') ? to : `${cleanNumber}@s.whatsapp.net`;
+
+            // Humanización básica antes de enviar botones
+            await this.simulateReading(sock, jid);
+            await this.simulateTyping(sock, jid, message);
+
+            const formattedButtons = buttons.map(btn => ({
+                buttonId: btn.id,
+                buttonText: { displayText: btn.text },
+                type: 1
+            }));
+
+            const payload = {
+                text: message,
+                buttons: formattedButtons,
+                headerType: 1
+            };
+
+            const sent = await sock.sendMessage(jid, payload);
+            console.log(`✅ Mensaje con botones enviado a ${cleanNumber} (JID: ${jid}) desde ${sessionId}`);
+
+            await this.saveChatOutgoing(sessionId, jid, message, sent?.key?.id || null, 'sent');
+
+            return { success: true, messageId: sent?.key?.id || null };
+        } catch (error) {
+            console.error('❌ Error enviando mensaje con botones:', error);
             throw error;
         }
     }
@@ -852,6 +910,99 @@ class WhatsAppServiceBaileys {
             }
         } catch (e) {
             console.error('Error updateMessageStatus:', e.message);
+        }
+    }
+
+    async processProspectButtonResponse(sessionId, msg) {
+        try {
+            const buttonResponse = msg.message?.buttonsResponseMessage || msg.message?.interactiveResponseMessage?.buttonReply;
+
+            if (!buttonResponse) {
+                return null;
+            }
+
+            const buttonId = buttonResponse.selectedButtonId || buttonResponse.id;
+            const buttonLabel = buttonResponse.selectedDisplayText || buttonResponse.displayText || buttonResponse?.title || buttonResponse?.buttonText?.displayText || buttonResponse?.text || null;
+
+            if (!buttonId || !buttonId.startsWith('prospect:')) {
+                return { handled: false, label: buttonLabel };
+            }
+
+            await ensureProspectSchema();
+            const prospect = await getProspectByButtonId(buttonId);
+
+            if (!prospect) {
+                console.warn(`⚠️ Prospecto no encontrado para botón ${buttonId}`);
+                return { handled: false, label: buttonLabel };
+            }
+
+            if (prospect.estado !== 'pendiente') {
+                console.log(`ℹ️ Prospecto ${prospect.id} ya procesado (${prospect.estado}).`);
+                return { handled: true, label: buttonLabel || prospect.estado };
+            }
+
+            const isAccept = buttonId.endsWith(':accept');
+            const nuevoEstado = isAccept ? 'aceptado' : 'rechazado';
+
+            const categoriaId = await getOrCreateCategory(prospect.usuario_id, prospect.categoria);
+            const contactoId = await upsertContactFromProspect({
+                usuarioId: prospect.usuario_id,
+                telefono: prospect.telefono,
+                nombre: prospect.nombre,
+                categoriaId,
+                estado: nuevoEstado,
+                prospectId: prospect.id
+            });
+
+            await updateProspectResponse({
+                prospectId: prospect.id,
+                estado: nuevoEstado,
+                contactoId
+            });
+
+            const metadata = (() => {
+                if (!prospect.metadata) return null;
+                try {
+                    if (typeof prospect.metadata === 'string') {
+                        return JSON.parse(prospect.metadata);
+                    }
+                    return prospect.metadata;
+                } catch (err) {
+                    console.log('Error parseando metadata de prospecto:', err);
+                    return null;
+                }
+            })();
+
+            if (isAccept && prospect.mensaje_original && !prospect.followup_sent) {
+                try {
+                    if (metadata && metadata.hasFile && metadata.filePath) {
+                        await this.sendMessageWithImage(sessionId, prospect.telefono, prospect.mensaje_original, metadata.filePath);
+                    } else {
+                        await this.sendMessage(sessionId, prospect.telefono, prospect.mensaje_original, { humanize: true });
+                    }
+                    await markFollowupSent(prospect.id);
+                    await incrementCampaignCounter(prospect.campana_id, 'enviados');
+                } catch (sendError) {
+                    console.error('Error enviando mensaje posterior a aceptación:', sendError);
+                }
+            }
+
+            if (!isAccept) {
+                await incrementCampaignCounter(prospect.campana_id, 'fallidos');
+            }
+
+            this.io.emit(`prospect-response-${prospect.campana_id}`, {
+                prospectId: prospect.id,
+                telefono: prospect.telefono,
+                estado: nuevoEstado,
+                contactoId,
+                campanaId: prospect.campana_id
+            });
+
+            return { handled: true, label: buttonLabel || (isAccept ? 'ACEPTAR' : 'RECHAZAR') };
+        } catch (error) {
+            console.error('❌ Error procesando respuesta de prospecto:', error);
+            return { handled: false, label: null, error: error.message };
         }
     }
 

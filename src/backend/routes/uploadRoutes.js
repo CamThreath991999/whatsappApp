@@ -9,6 +9,10 @@ const path = require('path');
 const fs = require('fs');
 const { pool } = require('../../config/database');
 const { verifyToken } = require('../middleware/auth');
+const {
+    ensureProspectSchema,
+    insertProspect
+} = require('../services/prospectService');
 
 const router = express.Router();
 
@@ -76,7 +80,9 @@ router.post('/contacts-excel', verifyToken, upload.single('file'), async (req, r
 
         console.log(`   📱 Dispositivos conectados: ${devices.length}`);
         devices.forEach(d => console.log(`      - ID ${d.id}: ${d.nombre_dispositivo} (${d.session_id})`));
-        
+
+        await ensureProspectSchema();
+
         // **ESTRATEGIA DE ROTACIÓN DINÁMICA**
         const useRotation = devices.length > 1;
         console.log(`   🔄 Estrategia: ${useRotation ? 'ROTACIÓN ACTIVA' : 'DISPOSITIVO ÚNICO'}`);
@@ -138,66 +144,21 @@ router.post('/contacts-excel', verifyToken, upload.single('file'), async (req, r
                     continue;
                 }
 
-                // Buscar o crear categoría por nombre
-                let categoriaId = null;
-                let categoriaDeviceId = null;
-                
-                if (categoria) {
-                    // Buscar categoría por nombre
-                    const [categorias] = await pool.execute(
-                        'SELECT id, dispositivo_id FROM categorias WHERE nombre = ? AND usuario_id = ?',
-                        [categoria, req.user.id]
-                    );
-
-                    if (categorias.length > 0) {
-                        categoriaId = categorias[0].id;
-                        categoriaDeviceId = categorias[0].dispositivo_id;
-                    } else {
-                        // Generar color aleatorio para la nueva categoría
-                        const colors = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8', '#6610f2', '#e83e8c', '#fd7e14', '#20c997', '#6c757d'];
-                        const randomColor = colors[Math.floor(Math.random() * colors.length)];
-                        
-                        // Crear nueva categoría con color aleatorio
-                        const [resultCat] = await pool.execute(
-                            'INSERT INTO categorias (nombre, usuario_id, color) VALUES (?, ?, ?)',
-                            [categoria, req.user.id, randomColor]
-                        );
-                        categoriaId = resultCat.insertId;
-                        console.log(`   ✅ Categoría "${categoria}" creada con ID ${categoriaId} y color ${randomColor}`);
-                    }
-                }
-
-                // Buscar o crear contacto
-                let [contacto] = await pool.execute(
-                    'SELECT id FROM contactos WHERE telefono = ?',
-                    [telefonoLimpio]
-                );
-
-                let contactoId;
-
-                if (contacto.length === 0) {
-                    // Crear nuevo contacto con usuario_id
-                    const [result] = await pool.execute(
-                        'INSERT INTO contactos (usuario_id, nombre, telefono, categoria_id) VALUES (?, ?, ?, ?)',
-                        [req.user.id, nombre || telefonoLimpio, telefonoLimpio, categoriaId]
-                    );
-                    contactoId = result.insertId;
-                } else {
-                    contactoId = contacto[0].id;
-                    
-                    // Actualizar nombre y categoría si cambió
-                    if (nombre || categoriaId) {
-                        await pool.execute(
-                            'UPDATE contactos SET nombre = COALESCE(?, nombre), categoria_id = COALESCE(?, categoria_id) WHERE id = ?',
-                            [nombre, categoriaId, contactoId]
-                        );
-                    }
-                }
-
                 // **ASIGNACIÓN INTELIGENTE DE DISPOSITIVOS**
                 let deviceId;
                 
-                // Prioridad 1: Si la categoría tiene un dispositivo asignado, usar ese
+                let categoriaDeviceId = null;
+                if (categoria) {
+                    const [categoriaDeviceRows] = await pool.execute(
+                        `SELECT dispositivo_id FROM categorias WHERE nombre = ? AND usuario_id = ?`,
+                        [categoria, req.user.id]
+                    );
+
+                    if (categoriaDeviceRows.length > 0) {
+                        categoriaDeviceId = categoriaDeviceRows[0].dispositivo_id;
+                    }
+                }
+
                 if (categoriaDeviceId && devices.some(d => d.id === categoriaDeviceId)) {
                     deviceId = categoriaDeviceId;
                     console.log(`   📌 Usando dispositivo asignado a categoría: ${deviceId}`);
@@ -216,17 +177,19 @@ router.post('/contacts-excel', verifyToken, upload.single('file'), async (req, r
                     deviceId = singleDeviceId;
                 }
                 
-                // Agregar mensaje a la campaña con dispositivo rotado
                 // Guardar la información de archivo como metadata JSON
-                const metadata = file && parseInt(file) === 1 && ruta ? 
-                    JSON.stringify({ hasFile: true, filePath: ruta }) : 
-                    null;
-                
-                await pool.execute(
-                    `INSERT INTO mensajes (campana_id, contacto_id, dispositivo_id, mensaje, metadata, estado) 
-                     VALUES (?, ?, ?, ?, ?, 'pendiente')`,
-                    [campaignId, contactoId, deviceId, mensaje || req.body.defaultMessage || 'Mensaje predeterminado', metadata]
-                );
+                const metadata = file && parseInt(file) === 1 && ruta ? { hasFile: true, filePath: ruta } : null;
+
+                await insertProspect({
+                    campanaId: campaignId,
+                    usuarioId: req.user.id,
+                    telefono: telefonoLimpio,
+                    nombre,
+                    categoria,
+                    mensajeOriginal: mensaje,
+                    dispositivoId: deviceId,
+                    metadata
+                });
 
                 added++;
                 
@@ -246,23 +209,21 @@ router.post('/contacts-excel', verifyToken, upload.single('file'), async (req, r
             [added, campaignId]
         );
 
-        // Obtener distribución de mensajes por dispositivo
-        const [distribution] = await pool.execute(
-            `SELECT d.id, d.nombre_dispositivo, COUNT(*) as total 
-             FROM mensajes m 
-             JOIN dispositivos d ON m.dispositivo_id = d.id 
-             WHERE m.campana_id = ? 
-             GROUP BY d.id`,
-            [campaignId]
-        );
-
         // Eliminar archivo después de procesar
         fs.unlinkSync(req.file.path);
 
+        const [distribution] = await pool.execute(
+            `SELECT dispositivo_id, COUNT(*) as total
+             FROM campana_prospectos
+             WHERE campana_id = ?
+             GROUP BY dispositivo_id`,
+            [campaignId]
+        );
+
         console.log(`   ✅ Procesamiento completo: ${added} contactos agregados, ${errors} errores`);
-        console.log(`   🔄 DISTRIBUCIÓN DE MENSAJES POR DISPOSITIVO:`);
+        console.log(`   🔄 DISTRIBUCIÓN DE PROSPECTOS POR DISPOSITIVO:`);
         distribution.forEach(d => {
-            console.log(`      📱 Dispositivo ${d.id} (${d.nombre_dispositivo}): ${d.total} mensajes`);
+            console.log(`      📱 Dispositivo ${d.dispositivo_id}: ${d.total} prospectos`);
         });
         console.log(`   📋 Resumen de contactos procesados:`);
         processLog.slice(0, 5).forEach((log, idx) => {
