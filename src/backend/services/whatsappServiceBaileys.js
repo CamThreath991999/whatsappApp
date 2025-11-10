@@ -368,7 +368,7 @@ class WhatsAppServiceBaileys {
     }
 
     // Enviar mensaje con botones interactivos
-    async sendButtonMessage(sessionId, to, message, buttons = []) {
+    async sendButtonMessage(sessionId, to, message, buttons = [], footer = 'Selecciona una opción') {
         try {
             const sock = this.clients.get(sessionId);
             if (!sock) {
@@ -378,26 +378,42 @@ class WhatsAppServiceBaileys {
             const cleanNumber = to.toString().replace(/\D/g, '');
             const jid = to.includes('@s.whatsapp.net') ? to : `${cleanNumber}@s.whatsapp.net`;
 
+            const validButtons = (buttons || [])
+                .map((btn, index) => {
+                    const text = (btn?.text || '').toString().trim();
+                    const id = (btn?.id || '').toString().trim();
+                    if (!text) {
+                        return null;
+                    }
+                    return {
+                        buttonId: id || `btn-${Date.now()}-${index}`,
+                        buttonText: { displayText: text },
+                        type: 1
+                    };
+                })
+                .filter(Boolean)
+                .slice(0, 3); // WhatsApp permite máximo 3 botones normales
+
+            if (validButtons.length === 0) {
+                // Si no hay botones válidos, enviar texto normal
+                return await this.sendMessage(sessionId, to, message, { humanize: true });
+            }
+
             // Humanización básica antes de enviar botones
             await this.simulateReading(sock, jid);
             await this.simulateTyping(sock, jid, message);
 
-            const formattedButtons = buttons.map(btn => ({
-                buttonId: btn.id,
-                buttonText: { displayText: btn.text },
-                type: 1
-            }));
-
             const payload = {
-                text: message,
-                buttons: formattedButtons,
+                text: (message && message.trim()) ? message.trim() : 'Selecciona una opción:',
+                footer: footer || undefined,
+                buttons: validButtons,
                 headerType: 1
             };
 
             const sent = await sock.sendMessage(jid, payload);
             console.log(`✅ Mensaje con botones enviado a ${cleanNumber} (JID: ${jid}) desde ${sessionId}`);
 
-            await this.saveChatOutgoing(sessionId, jid, message, sent?.key?.id || null, 'sent');
+            await this.saveChatOutgoing(sessionId, jid, payload.text, sent?.key?.id || null, 'sent');
 
             return { success: true, messageId: sent?.key?.id || null };
         } catch (error) {

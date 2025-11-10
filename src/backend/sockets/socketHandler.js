@@ -73,10 +73,40 @@ function initializeSocketHandlers(io) {
                 const { sessionId, phoneNumbers, message } = data;
                 
                 const results = [];
+                const rawMessage = (message || '').toString();
+                const buttonRegex = /\{\{([^{}]+)\}\}/g;
+                const extractedButtons = [];
+                let match;
+
+                while ((match = buttonRegex.exec(rawMessage)) !== null) {
+                    const label = (match[1] || '').trim();
+                    if (label) {
+                        extractedButtons.push(label);
+                    }
+                }
+
+                const uniqueButtons = Array.from(new Set(extractedButtons)).slice(0, 3);
+
+                const cleanedMessage = rawMessage
+                    .replace(buttonRegex, '')
+                    .replace(/[\s\u00A0]+/g, ' ')
+                    .trim();
+
+                const buttonsPayload = uniqueButtons.map((label, index) => ({
+                    id: `manual:${Date.now()}:${index}:${Math.floor(Math.random() * 1000)}`,
+                    text: label
+                }));
+
+                const hasButtons = buttonsPayload.length > 0;
+                const messageToSend = hasButtons ? (cleanedMessage || 'Selecciona una opción:') : rawMessage;
 
                 for (const phone of phoneNumbers) {
                     try {
-                        await whatsappService.sendMessage(sessionId, phone, message);
+                        if (hasButtons) {
+                            await whatsappService.sendButtonMessage(sessionId, phone, messageToSend, buttonsPayload);
+                        } else {
+                            await whatsappService.sendMessage(sessionId, phone, messageToSend);
+                        }
                         results.push({ phone, success: true });
                     } catch (error) {
                         results.push({ phone, success: false, error: error.message });
