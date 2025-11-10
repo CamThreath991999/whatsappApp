@@ -1129,35 +1129,34 @@ class CampaignService {
                 throw new Error('Cliente no disponible para enviar mensaje inicial');
             }
 
-            // Generar mensaje inicial
-            const initialMessage = await generateInitialMessage(message.telefono, message.nombre);
+            const initialMessage = generateInitialMessage(message.nombre, message.categoria);
+            const acceptButtonId = `prospect:${message.prospectId}:accept`;
+            const rejectButtonId = `prospect:${message.prospectId}:reject`;
 
-            // Marcar el mensaje como enviado en la base de datos
-            await markInitialMessageSent(message.id);
-
-            // Enviar mensaje inicial
-            await this.whatsappService.sendMessage(
+            const sendResult = await this.whatsappService.sendButtonMessage(
                 sessionId,
                 message.telefono,
                 initialMessage,
-                { humanize: true } // 🤖 ACTIVAR HUMANIZACIÓN
+                [
+                    { id: acceptButtonId, text: 'ACEPTAR' },
+                    { id: rejectButtonId, text: 'RECHAZAR' }
+                ]
             );
 
-            // Actualizar estado del mensaje
-            await pool.execute(
-                'UPDATE mensajes SET estado = ?, fecha_envio = NOW() WHERE id = ?',
-                ['enviado', message.id]
-            );
+            await markInitialMessageSent(message.prospectId, {
+                initialMessage,
+                acceptButtonId,
+                rejectButtonId,
+                messageKey: sendResult?.messageId || null
+            });
 
-            // Actualizar contador de campaña
-            await pool.execute(
-                'UPDATE campanas SET mensajes_enviados = mensajes_enviados + 1 WHERE id = ?',
-                [campaignId]
-            );
+            await incrementCampaignCounter(campaignId, 'enviados');
 
             return {
                 initialMessage,
-                messageId: message.id
+                acceptButtonId,
+                rejectButtonId,
+                messageId: sendResult?.messageId || null
             };
 
         } catch (error) {
