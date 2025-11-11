@@ -1130,35 +1130,24 @@ class CampaignService {
             }
 
             const initialMessage = generateInitialMessage(message.nombre, message.categoria);
-            const acceptButtonId = `prospect:${message.prospectId}:accept`;
-            const rejectButtonId = `prospect:${message.prospectId}:reject`;
 
-            const sendResult = await this.whatsappService.sendButtonMessage(
+            await this.whatsappService.sendMessage(
                 sessionId,
                 message.telefono,
                 initialMessage,
-                [
-                    { id: acceptButtonId, text: 'ACEPTAR' },
-                    { id: rejectButtonId, text: 'RECHAZAR' }
-                ],
-                'Selecciona una opción',
-                { displayName: message.nombre }
+                { humanize: true, displayName: message.nombre }
             );
 
             await markInitialMessageSent(message.prospectId, {
                 initialMessage,
-                acceptButtonId,
-                rejectButtonId,
-                messageKey: sendResult?.messageId || null
+                messageKey: null
             });
 
             await incrementCampaignCounter(campaignId, 'enviados');
 
             return {
                 initialMessage,
-                acceptButtonId,
-                rejectButtonId,
-                messageId: sendResult?.messageId || null
+                messageId: null
             };
 
         } catch (error) {

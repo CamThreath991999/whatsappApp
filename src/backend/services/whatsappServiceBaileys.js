@@ -2,7 +2,14 @@
  * Servicio de WhatsApp usando Baileys (sin Puppeteer)
  */
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason,
+    fetchLatestBaileysVersion,
+    generateWAMessageFromContent,
+    proto
+} = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
@@ -10,7 +17,7 @@ const { pool } = require('../../config/database');
 const redisHelper = require('../utils/redisHelper');
 const {
     ensureProspectSchema,
-    getProspectByButtonId,
+    getPendingProspectByPhone,
     getOrCreateCategory,
     upsertContactFromProspect,
     updateProspectResponse,
@@ -239,16 +246,6 @@ class WhatsAppServiceBaileys {
                 for (const msg of messages) {
                     if (msg.key.fromMe) continue; // Ignorar mensajes propios
  
-                    let buttonInfo = null;
-
-                    if (msg.message?.buttonsResponseMessage || msg.message?.interactiveResponseMessage) {
-                        buttonInfo = await this.processProspectButtonResponse(sessionId, msg);
-                        if (buttonInfo && buttonInfo.label) {
-                            msg.message = msg.message || {};
-                            msg.message.conversation = buttonInfo.label;
-                        }
-                    }
-
                     // 🔍 DEBUG COMPLETO - Mostrar toda la información del mensaje
                     console.log('\n📨 ========== MENSAJE RECIBIDO ==========');
                     console.log('Session:', sessionId);
@@ -303,7 +300,18 @@ class WhatsAppServiceBaileys {
                     console.log('✅ JID normalizado final:', normalizedChatId);
                     console.log('💬 Texto del mensaje:', messageText.substring(0, 50));
                     console.log('==========================================\n');
-                    
+
+                    await this.processProspectTextResponse(sessionId, phoneNumber, messageText, msg);
+
+                    try {
+                        if (type === 'notify') {
+                            await sock.readMessages([msg.key]);
+                            console.log('👁️ Mensaje marcado como leído para', phoneNumber);
+                        }
+                    } catch (readErr) {
+                        console.error('⚠️ No se pudo marcar como leído:', readErr?.message || readErr);
+                    }
+
                     // Guardar chat con el ID NORMALIZADO
                     await this.saveChat(sessionId, normalizedChatId, messageText, msg);
                     
@@ -319,6 +327,30 @@ class WhatsAppServiceBaileys {
 
             // Evento: Actualizar credenciales
             sock.ev.on('creds.update', saveCreds);
+
+            // Manejador de presencia
+            sock.ev.on('presence.update', async ({ id, presences }) => {
+                try {
+                    if (!presences || typeof presences !== 'object') return;
+
+                    Object.entries(presences).forEach(([userJid, presenceData]) => {
+                        if (!presenceData) return;
+                        const { lastSeen, status } = presenceData;
+
+                        const payload = {
+                            sessionId,
+                            contact: userJid,
+                            status: status || 'unknown',
+                            lastSeen: lastSeen ? Number(lastSeen) : null,
+                            timestamp: Date.now()
+                        };
+
+                        this.io.emit(`presence-${sessionId}`, payload);
+                    });
+                } catch (presenceError) {
+                    console.error('⚠️ Error procesando presence.update:', presenceError?.message || presenceError);
+                }
+            });
 
             console.log(`✅ Socket Baileys creado para ${sessionId}`);
 
@@ -377,6 +409,13 @@ class WhatsAppServiceBaileys {
     // Enviar mensaje con botones interactivos
     async sendButtonMessage(sessionId, to, message, buttons = [], footer = 'Selecciona una opción', options = {}) {
         try {
+            console.log('🔎 sendButtonMessage: iniciando', {
+                sessionId,
+                to,
+                message,
+                buttonsCount: Array.isArray(buttons) ? buttons.length : 0
+            });
+
             const sock = this.clients.get(sessionId);
             if (!sock) {
                 throw new Error(`Sesión ${sessionId} no encontrada`);
@@ -384,8 +423,10 @@ class WhatsAppServiceBaileys {
 
             const cleanNumber = to.toString().replace(/\D/g, '');
             const jid = to.includes('@s.whatsapp.net') ? to : `${cleanNumber}@s.whatsapp.net`;
+            console.log('🔎 sendButtonMessage: JID resuelto', { cleanNumber, jid });
 
             const cleanedButtons = Array.isArray(buttons) ? buttons : [];
+            console.log('🔎 sendButtonMessage: botones recibidos', cleanedButtons);
 
             const validButtons = cleanedButtons
                 .map((btn, index) => {
@@ -397,15 +438,19 @@ class WhatsAppServiceBaileys {
                         .slice(0, 128);
 
                     return {
-                        id,
-                        text: label
+                        buttonId: id,
+                        buttonText: { displayText: label },
+                        type: 1
                     };
                 })
                 .filter(Boolean)
                 .slice(0, 3);
 
+            console.log('🔎 sendButtonMessage: botones válidos', validButtons);
+
             if (validButtons.length === 0) {
                 // Si no hay botones válidos, enviar texto normal
+                console.log('⚠️ sendButtonMessage: sin botones válidos, enviando mensaje plano');
                 return await this.sendMessage(sessionId, to, message, { humanize: true });
             }
 
@@ -413,37 +458,53 @@ class WhatsAppServiceBaileys {
             await this.simulateReading(sock, jid);
             await this.simulateTyping(sock, jid, message);
 
+            console.log('🔎 sendButtonMessage: humanización completa');
+
             const messageText = (message && message.trim()) ? message.trim() : 'Selecciona una opción:';
 
-            const templateButtons = validButtons.map((btn, index) => ({
-                index: index + 1,
-                quickReplyButton: {
-                    displayText: btn.text,
-                    id: btn.id
+            const buttonMessage = {
+                buttonsMessage: {
+                    contentText: messageText,
+                    footerText: footer || '',
+                    buttons: validButtons,
+                    headerType: 1
                 }
-            }));
-
-            const payload = {
-                text: messageText,
-                footer: footer || undefined,
-                templateButtons
             };
 
-            const sent = await sock.sendMessage(jid, payload);
+            console.log('🔎 sendButtonMessage: payload generado', buttonMessage);
+
+            const waMessage = generateWAMessageFromContent(
+                jid,
+                proto.Message.fromObject(buttonMessage),
+                {
+                    userJid: sock.user.id,
+                    quoted: options?.quoted || null
+                }
+            );
+
+            console.log('🔎 sendButtonMessage: waMessage generado', {
+                key: waMessage?.key,
+                messageTypes: Object.keys(waMessage?.message || {})
+            });
+
+            await sock.relayMessage(jid, waMessage.message, { messageId: waMessage.key.id });
             console.log(`✅ Mensaje con botones enviado a ${cleanNumber} (JID: ${jid}) desde ${sessionId}`);
 
             await this.saveChatOutgoing(
                 sessionId,
                 jid,
-                payload.text,
-                sent?.key?.id || null,
+                messageText,
+                waMessage.key.id,
                 'sent',
                 options?.displayName || null
             );
 
-            return { success: true, messageId: sent?.key?.id || null };
+            return { success: true, messageId: waMessage.key.id };
         } catch (error) {
             console.error('❌ Error enviando mensaje con botones:', error);
+            if (error?.stack) {
+                console.error(error.stack);
+            }
             throw error;
         }
     }
@@ -967,50 +1028,75 @@ class WhatsAppServiceBaileys {
         }
     }
 
-    async processProspectButtonResponse(sessionId, msg) {
+    async processProspectTextResponse(sessionId, phoneNumber, messageText, msg) {
         try {
-            const buttonResponse = msg.message?.buttonsResponseMessage || msg.message?.interactiveResponseMessage?.buttonReply;
-
-            if (!buttonResponse) {
-                return null;
+            if (!messageText || !phoneNumber) {
+                return;
             }
 
-            const buttonId = buttonResponse.selectedButtonId || buttonResponse.id;
-            const buttonLabel = buttonResponse.selectedDisplayText || buttonResponse.displayText || buttonResponse?.title || buttonResponse?.buttonText?.displayText || buttonResponse?.text || null;
+            const trimmed = messageText.toString().trim();
+            if (!trimmed) return;
 
-            if (!buttonId || !buttonId.startsWith('prospect:')) {
-                return { handled: false, label: buttonLabel };
+            const normalized = trimmed.toLowerCase();
+            const withoutAccents = normalized.normalize('NFD').replace(/[\u0300-\u036f]/gu, '');
+            const collapsed = withoutAccents.replace(/[^0-9a-z]/g, '');
+
+            const textVariants = new Set([
+                collapsed,
+                withoutAccents,
+                normalized,
+                normalized.replace(/[\s\.,;:]/g, ''),
+                normalized.split(' ')[0] || ''
+            ]);
+
+            let decision = null;
+
+            const acceptKeywords = ['2', 'opcion2', 'dos', 'aceptar', 'acepto', 'aceptado', 'si', 'sí', 's', 'continuar', 'seguir', 'aceptarcontinuar'];
+            const rejectKeywords = ['1', 'opcion1', 'uno', 'reportar', 'rechazar', 'rechazo', 'no', 'n', 'cancelar', 'detener'];
+
+            for (const variant of textVariants) {
+                if (variant && acceptKeywords.includes(variant)) {
+                    decision = 'accept';
+                    break;
+                }
+                if (variant && rejectKeywords.includes(variant)) {
+                    decision = 'reject';
+                    break;
+                }
+            }
+
+            if (!decision) {
+                return;
             }
 
             await ensureProspectSchema();
-            const prospect = await getProspectByButtonId(buttonId);
+            const prospect = await getPendingProspectByPhone(phoneNumber);
 
             if (!prospect) {
-                console.warn(`⚠️ Prospecto no encontrado para botón ${buttonId}`);
-                return { handled: false, label: buttonLabel };
+                console.log('ℹ️ No se encontró prospecto pendiente para', phoneNumber);
+                return;
             }
 
             if (prospect.estado !== 'pendiente') {
-                console.log(`ℹ️ Prospecto ${prospect.id} ya procesado (${prospect.estado}).`);
-                return { handled: true, label: buttonLabel || prospect.estado };
+                console.log(`ℹ️ Prospecto ${prospect.id} ya fue procesado (${prospect.estado})`);
+                return;
             }
 
-            const isAccept = buttonId.endsWith(':accept');
-            const nuevoEstado = isAccept ? 'aceptado' : 'rechazado';
+            const categoriaId = await getOrCreateCategory(prospect.campana_usuario, prospect.categoria);
+            const estado = decision === 'accept' ? 'aceptado' : 'rechazado';
 
-            const categoriaId = await getOrCreateCategory(prospect.usuario_id, prospect.categoria);
             const contactoId = await upsertContactFromProspect({
-                usuarioId: prospect.usuario_id,
+                usuarioId: prospect.campana_usuario,
                 telefono: prospect.telefono,
                 nombre: prospect.nombre,
                 categoriaId,
-                estado: nuevoEstado,
+                estado,
                 prospectId: prospect.id
             });
 
             await updateProspectResponse({
                 prospectId: prospect.id,
-                estado: nuevoEstado,
+                estado,
                 contactoId
             });
 
@@ -1027,48 +1113,58 @@ class WhatsAppServiceBaileys {
                 }
             })();
 
-            if (isAccept && prospect.mensaje_original && !prospect.followup_sent) {
+            if (decision === 'accept') {
                 try {
                     const displayName = prospect.nombre ? prospect.nombre : null;
-                    if (metadata && metadata.hasFile && metadata.filePath) {
-                        await this.sendMessageWithImage(
-                            sessionId,
-                            prospect.telefono,
-                            prospect.mensaje_original,
-                            metadata.filePath,
-                            { displayName }
-                        );
-                    } else {
-                        await this.sendMessage(
-                            sessionId,
-                            prospect.telefono,
-                            prospect.mensaje_original,
-                            { humanize: true, displayName }
-                        );
+                    if (prospect.mensaje_original && !prospect.followup_sent) {
+                        if (metadata && metadata.hasFile && metadata.filePath) {
+                            await this.sendMessageWithImage(
+                                sessionId,
+                                prospect.telefono,
+                                prospect.mensaje_original,
+                                metadata.filePath,
+                                { displayName }
+                            );
+                        } else {
+                            await this.sendMessage(
+                                sessionId,
+                                prospect.telefono,
+                                prospect.mensaje_original,
+                                { humanize: true, displayName }
+                            );
+                        }
                     }
                     await markFollowupSent(prospect.id);
                     await incrementCampaignCounter(prospect.campana_id, 'enviados');
                 } catch (sendError) {
                     console.error('Error enviando mensaje posterior a aceptación:', sendError);
                 }
-            }
-
-            if (!isAccept) {
+            } else {
                 await incrementCampaignCounter(prospect.campana_id, 'fallidos');
             }
 
             this.io.emit(`prospect-response-${prospect.campana_id}`, {
                 prospectId: prospect.id,
                 telefono: prospect.telefono,
-                estado: nuevoEstado,
+                estado,
                 contactoId,
                 campanaId: prospect.campana_id
             });
 
-            return { handled: true, label: buttonLabel || (isAccept ? 'ACEPTAR' : 'RECHAZAR') };
+            if (decision === 'reject') {
+                await this.sendMessage(
+                    sessionId,
+                    prospect.telefono,
+                    'Gracias, registramos tu respuesta. Si deseas volver a comunicarte responde con 2.',
+                    { displayName: prospect.nombre }
+                );
+            }
+
         } catch (error) {
-            console.error('❌ Error procesando respuesta de prospecto:', error);
-            return { handled: false, label: null, error: error.message };
+            console.error('❌ Error procesando respuesta del prospecto:', error);
+            if (error?.stack) {
+                console.error(error.stack);
+            }
         }
     }
 

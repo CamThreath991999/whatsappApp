@@ -123,35 +123,13 @@ function generateInitialMessage(nombre, categoria) {
     const safeName = getSafeName(nombre);
     const safeCategory = getSafeCategory(categoria);
 
-    const openings = [
-        `Hola ${safeName}`,
-        `Buen día ${safeName}`,
-        `Estimado/a ${safeName}`,
-        `Saludos ${safeName}`,
-        `${safeName}, buen día`
-    ];
+    return (
+        `Estimado ${safeName}, por este canal te informaremos sobre la deuda pendiente con ${safeCategory}.
 
-    const bodies = [
-        `usaremos este chat para mantenerte al tanto del saldo pendiente con ${safeCategory}.`,
-        `por este medio compartiremos información relacionada a la deuda que registras con ${safeCategory}.`,
-        `te contactamos para coordinar actualizaciones sobre el compromiso vigente con ${safeCategory}.`,
-        `queremos facilitarte las notificaciones sobre la deuda activa que tienes con ${safeCategory}.`,
-        `mantendremos desde aquí las novedades sobre tu deuda en ${safeCategory}.`
-    ];
-
-    const closings = [
-        '¿Deseas continuar la atención por WhatsApp?',
-        'Por favor, confirma si deseas recibir la información aquí.',
-        'Elige si quieres continuar la gestión desde este canal.',
-        'Indica si autorizas que continuemos por este chat.',
-        'Selecciona una opción para continuar con el proceso.'
-    ];
-
-    const opening = openings[Math.floor(Math.random() * openings.length)];
-    const body = bodies[Math.floor(Math.random() * bodies.length)];
-    const closing = closings[Math.floor(Math.random() * closings.length)];
-
-    return `${opening}, ${body} ${closing}`;
+Responde con el número de la opción:
+1. Reportar / Rechazar
+2. Aceptar y continuar`
+    );
 }
 
 async function insertProspect({
@@ -202,12 +180,13 @@ async function getPendingProspects(campaignId) {
     return rows;
 }
 
-async function markInitialMessageSent(prospectId, {
-    initialMessage,
-    acceptButtonId,
-    rejectButtonId,
-    messageKey
-}) {
+async function markInitialMessageSent(prospectId, options = {}) {
+    const {
+        initialMessage = null,
+        acceptButtonId = null,
+        rejectButtonId = null,
+        messageKey = null
+    } = options;
     await ensureProspectSchema();
 
     await pool.execute(
@@ -325,6 +304,25 @@ async function getProspectByButtonId(buttonId) {
     return rows.length > 0 ? rows[0] : null;
 }
 
+async function getPendingProspectByPhone(telefono) {
+    await ensureProspectSchema();
+
+    const sanitized = sanitizePhone(telefono);
+
+    const [rows] = await pool.execute(
+        `SELECT p.*, c.usuario_id as campana_usuario, c.id as campana_id, d.session_id, d.estado as dispositivo_estado
+         FROM campana_prospectos p
+         JOIN campanas c ON c.id = p.campana_id
+         LEFT JOIN dispositivos d ON d.id = p.dispositivo_id
+         WHERE p.telefono = ? AND p.estado = 'pendiente'
+         ORDER BY p.created_at DESC
+         LIMIT 1`,
+        [sanitized]
+    );
+
+    return rows.length > 0 ? rows[0] : null;
+}
+
 module.exports = {
     ensureProspectSchema,
     insertProspect,
@@ -336,5 +334,6 @@ module.exports = {
     upsertContactFromProspect,
     updateProspectResponse,
     markFollowupSent,
-    getProspectByButtonId
+    getProspectByButtonId,
+    getPendingProspectByPhone
 };
